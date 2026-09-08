@@ -60,7 +60,9 @@ el ratio previo del final. No se recalcula el PUM comercial desde el ERP.
 ## Evidencia local
 
 - `reports/separacion_precios_aplicacion/`: primer CSV completo, cambios y recibos.
-- `reports/entrega_verificada/`: repetición final, CSV completo y cambios vacío.
+- `reports/separacion_verificada/`: repetición sin cambios.
+- `reports/entrega_verificada/`: lectura de las 17:01, un producto actualizado por un
+  nuevo cambio ERP (dos filas), cero errores de aplicación y 8,732 s.
 - `reports/separacion_invariantes.json`: preservación de datos y excluidos.
 - En el nuevo proyecto: `reports/aplicacion_catalogo/` y `reports/browser_separacion.json`.
 
