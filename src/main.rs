@@ -63,7 +63,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         clauses.push(format!("'{}'", s));
     }
     let sql = format!("SELECT TRIM(p.productoid) AS erp_id, TRIM(hp.referencia) AS reference,
-      TRIM(p.barras) AS ean, TRIM(p.barras2) AS ean2, TRIM(p.Barras3) AS ean3,
+      TRIM(COALESCE(p.estado,'')) AS state, TRIM(p.barras) AS ean, TRIM(p.barras2) AS ean2, TRIM(p.Barras3) AS ean3,
       TRIM(hp.nombre) AS name, TRIM(COALESCE(hp.nombrrefer,'')) AS short_name,
       TRIM(hp.unidad) AS unit, TRIM(COALESCE(hp.ManejPrese,'')) AS manages,
       CAST(p.valor AS VARCHAR(40)) AS gross, CAST(hp.ivaid AS VARCHAR(40)) AS tax,
@@ -85,14 +85,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         } else { p["price_source"]=json!(if primary.len()>1 && string(p,"gross").is_empty() {"AMBIGUOUS_LIST_1"} else {"Producto.valor"}); }
     }
     // Include factor=1: its price may differ, or it may be a redundant Caja/Paquete.
-    let presentations = select(&mut client, "SELECT TRIM(p.productoid) AS erp_id,
+    let all_presentations = select(&mut client, "SELECT TRIM(p.productoid) AS erp_id,
       CAST(pr.PresentacionId AS VARCHAR(40)) AS presentation_id, TRIM(pr.Nombre) AS label,
       CAST(pr.Factor AS VARCHAR(40)) AS factor, CAST(pr.Valor AS VARCHAR(40)) AS gross,
-      CAST(pr.PrecioDesdePrincipal AS VARCHAR(10)) AS from_main
+      CAST(pr.PrecioDesdePrincipal AS VARCHAR(10)) AS from_main,
+      TRIM(pr.Estado) AS state, CAST(pr.Venta AS VARCHAR(10)) AS sale, TRIM(COALESCE(hp.ManejPrese,'')) AS manages
       FROM Producto p JOIN HeadProd hp ON hp.headprodid=p.headprodid
       JOIN Presentacion pr ON pr.HeadProdId=hp.headprodid
-      WHERE COALESCE(hp.ManejPrese,'')='S' AND pr.Estado='A' AND pr.Venta=1
       ORDER BY p.productoid, pr.PresentacionId").await?;
+    let presentations: Vec<Value> = all_presentations.iter().filter(|p| string(p,"state")=="A" && string(p,"sale")=="1" && string(p,"manages")=="S").cloned().collect();
     let schema = select(&mut client, "SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name,
       DATA_TYPE AS data_type FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_NAME IN ('Producto','HeadProd','Presentacion','InveProd')
@@ -136,6 +137,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             factors.insert(format!("{}:{}",ps["id"],string(erp,"erp_id")),json!(format!("{:.12}",factor)));
         }
     }
-    println!("{}",json!({"host":host,"products":products,"presentations":presentations,"schema":schema,"legacy_factors":factors,"warehouses":warehouses,"price_lists":price_lists}));
+    println!("{}",json!({"schema_version":3,"host":host,"products":products,"presentations":presentations,"all_presentations":all_presentations,"schema":schema,"legacy_factors":factors,"warehouses":warehouses,"price_lists":price_lists}));
     Ok(())
 }

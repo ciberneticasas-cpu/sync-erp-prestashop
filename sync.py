@@ -15,6 +15,7 @@ import sys
 import unicodedata
 import match_erp
 
+API_VERSION = 3
 ROOT = Path(__file__).resolve().parent
 def test_host(settings):
     value = settings.get('test_host', '')
@@ -110,11 +111,14 @@ def bridge(settings, command='snapshot', **kwargs):
 
 
 def erp_read(settings, products):
-    executable = ROOT / 'target/debug/mercaboy_erp_reader'
+    executable = ROOT / 'target/release/mercaboy_erp_reader'
     if not executable.exists():
-        raise RuntimeError('Compile primero: cargo build --offline')
-    return invoke([str(executable)], dict(env_file=settings['env_file'],
+        raise RuntimeError('Compile primero: cargo build --offline --release')
+    result = invoke([str(executable)], dict(env_file=settings['env_file'],
                                         warehouses=settings['warehouses'], products=products), timeout=300)
+    if result.get('schema_version') != API_VERSION:
+        raise RuntimeError('Lector ERP incompatible; ejecute cargo build --offline --release')
+    return result
 
 
 def make_index(erp):
@@ -216,139 +220,8 @@ def row_for(ps, e=None, item=None, **extra):
 
 
 def build_plan(snapshot, erp, settings):
-    if snapshot['target'] != target(settings) or erp['host'] != '192.168.0.231':
-        raise ValueError('Destino protegido')
-    operations, rows, unchanged = [], [], 0
-    legacy_match = settings.get('match_strategy') == 'legacy_priority'
-    index = match_erp.index(erp) if legacy_match else make_index(erp)
-    for ps in snapshot['products']:
-        mapping = dict(settings.get('mappings', {}).get(str(ps['id']), {}))
-        e = None
-        try:
-            if ps['product_type'] in ('pack', 'virtual'):
-                raise ValueError('TIPO_PRODUCTO_NO_COMPATIBLE')
-            if legacy_match:
-                e, match_criterion, match_warning = match_erp.resolve(ps, erp, mapping, index)
-                if match_warning and settings.get('review_match_conflicts'):
-                    raise ValueError('MATCH_DISCREPANTE_REQUIERE_REVISION: ' + match_warning)
-            else:
-                e = resolve(ps, erp, mapping, index)
-            records = [r for r in erp['presentations'] if r['erp_id'] == e['erp_id']]
-            if e['manages'] == 'S' and not records and not settings.get('allow_simple_without_presentations'):
-                raise ValueError('ERP_MANEJA_PRESENTACIONES_SIN_DEFINICION_VENDIBLE')
-            units, aliases, issues = presentations_for(e, records)
-            if settings.get('automatic_presentation_names') and len(units) > 1:
-                for unit in units:
-                    if norm(unit['label']) == 'blister': unit['label'] = 'Blíster'
-                if 'fraccion' in norm(ps['name']) and not mapping.get('product_name'):
-                    mapping['product_name'] = e['name'] + ' - ' + ' / '.join('Caja' if u['presentation_id'] == 'BASE' and norm(e['unit']) in ('cja','caja','cj') else u['label'] for u in units)
-            unrelated_variants = ps['combinations'] and all(norm(a['group_name']) != 'presentacion' for c in ps['combinations'] for a in c['attributes'])
-            is_simple = len(units) == 1 and (not ps['combinations'] or (settings.get('preserve_nonpresentation_combinations') and unrelated_variants))
-            if issues:
-                raise ValueError('; '.join(issues))
-            if is_simple:
-                if any(word in norm(ps['name']) for word in ('fraccion', 'blister')):
-                    if not mapping.get('simple_factor'):
-                        raise ValueError('FRACCION_SIN_PRESENTACION_ERP_CONFIRMADA')
-                factor = mapping.get('simple_factor', erp['legacy_factors'].get('{}:{}'.format(ps['id'], e['erp_id'])))
-                if factor is None:
-                    raise ValueError('FALTA_FACTOR_HEREDADO_O_MAPEO_EXPLICITO')
-                factor = dec(factor)
-                if factor <= 0:
-                    raise ValueError('FACTOR_INVALIDO')
-                base = money(net_price(e['gross'], e['tax']) * factor)
-                if abs(dec(ps['price']) - dec(base)) < Decimal('.005'):
-                    unchanged += 1
-                    for alias in aliases:
-                        rows.append(row_for(ps, e, estado='OMITIDO', motivo='EQUIVALENTE_A_' + alias['equivalent_to'],
-                                            presentacion_id=alias['presentation_id'], presentacion=alias['label'], factor_erp=alias['factor']))
-                    continue
-                units = [dict(presentation_id='BASE', label=e['unit'], factor=str(factor), net_price=base,
-                              impact='0.000000', combination_id=0, reference=ps['reference'] or '', default=True, quantity=None)]
-            else:
-                base = money(net_price(e['gross'], e['tax']))
-                unit_mapping = mapping.get('presentations', {})
-                used = set()
-                reasons = []
-                for unit in units:
-                    configured = unit_mapping.get(unit['presentation_id'], {})
-                    unit['label'] = configured.get('label', 'Caja' if unit['presentation_id'] == 'BASE' and norm(e['unit']) in ('cja','caja','cj') else unit['label'])
-                    combo = match_combination(ps, unit, configured)
-                    reference = configured.get('reference', (combo or {}).get('reference', '')) or ''
-                    origin = 'MAPEO_EXPLICITO' if configured.get('reference') else 'REFERENCIA_EXISTENTE'
-                    existing_refs = [c.get('reference') for c in ps['combinations']]
-                    if settings.get('reference_strategy') == 'erp_tuple' and not configured.get('reference') and (
-                            not reference or existing_refs.count(reference) > 1):
-                        reference = e['erp_id'] + ':' + unit['presentation_id']
-                        origin = 'CLAVE_TECNICA_PRODUCTOID_PRESENTACIONID'
-                    unit['reference_origin'] = origin
-                    if not reference or len(reference) > 64:
-                        reasons.append('FALTA_REFERENCIA_CONFIRMADA_' + unit['presentation_id'])
-                    if combo:
-                        if combo['id'] in used:
-                            reasons.append('COMBINACION_ASIGNADA_DOS_VECES')
-                        used.add(combo['id'])
-                        unit['label'] = combo['attributes'][0]['label']
-                    unit.update(impact=money(dec(unit['net_price']) - dec(base)),
-                                combination_id=combo['id'] if combo else 0, reference=reference,
-                                default=unit['presentation_id'] == mapping.get('default_presentation', 'BASE'),
-                                quantity=None if combo else 0)
-                if used != {c['id'] for c in ps['combinations']}:
-                    reasons.append('COMBINACIONES_EXISTENTES_SIN_MAPEAR_NO_SE_ELIMINAN')
-                references = [u['reference'] for u in units]
-                if len(set(references)) != len(references):
-                    reasons.append('REFERENCIAS_DE_COMBINACION_NO_UNICAS')
-                if sum(u['default'] for u in units) != 1:
-                    reasons.append('PREDETERMINADA_INVALIDA')
-                if 'fraccion' in norm(ps['name']) and not mapping.get('product_name'):
-                    reasons.append('NOMBRE_FRACCION_REQUIERE_NOMBRE_COMERCIAL_PARA_CAJA_Y_BLISTER')
-                if len(units) < 2:
-                    reasons.append('SOLO_UNA_PRESENTACION_REAL_REVISAR_COMBINACIONES_EXISTENTES')
-                if reasons:
-                    for unit in units:
-                        rows.append(row_for(ps, e, unit, estado='BLOQUEADO', motivo='; '.join(reasons),
-                                            precio_padre_propuesto=base, impacto_propuesto=unit['impact'],
-                                            id_combinacion=unit['combination_id'], referencia_combinacion=unit['reference'], origen_referencia=unit.get('reference_origin', ''), activo_destino='0'))
-                    for alias in aliases:
-                        rows.append(row_for(ps, e, estado='OMITIDO', motivo='EQUIVALENTE_A_' + alias['equivalent_to'],
-                                            presentacion_id=alias['presentation_id'], presentacion=alias['label'], factor_erp=alias['factor']))
-                    continue
-            if dec(ps['ecotax']) != 0:
-                raise ValueError('ECOTASA_REQUIERE_REVISION')
-            op = dict(id=ps['id'], before=ps, mode='simple' if is_simple else 'presentations',
-                      base_price=base, presentations=units, erp_product=e, erp_presentations=records,
-                      stage_disabled=not is_simple and settings.get('presentation_mode') != 'visible_preview',
-                      preview_only=not is_simple and settings.get('presentation_mode') == 'visible_preview',
-                      new_name=mapping.get('product_name', '') if not is_simple else '')
-            if not is_simple and str(ps['active']) == ('1' if op['preview_only'] else '0') and (
-                    not op['preview_only'] or str(ps.get('available_for_order')) == '0') and dec(ps['price']) == dec(base) and (
-                    not op['new_name'] or op['new_name'] == ps['name']):
-                current = {c['id']: c for c in ps['combinations']}
-                if all(u['combination_id'] in current and
-                       dec(current[u['combination_id']]['price']) == dec(u['impact']) and
-                       current[u['combination_id']]['reference'] == u['reference'] and
-                       int(current[u['combination_id']].get('minimal_quantity', 0)) == 1 and
-                       bool(current[u['combination_id']].get('default_on')) == u['default']
-                       for u in units):
-                    unchanged += 1
-                    continue
-            operations.append(op)
-            for unit in units:
-                rows.append(row_for(ps, e, unit, estado='PROPUESTO',
-                                    motivo='PRECIO_SIMPLE_REGLA_HEREDADA_STOCK_Y_PUM_SE_CONSERVAN' if is_simple else (
-                                        'VISTA_PREVIA_VISIBLE_COMPRA_DESHABILITADA' if op['preview_only'] else 'PRESENTACIONES_EN_BORRADOR_STOCK_COMPARTIDO_PENDIENTE'),
-                                    precio_padre_propuesto=base, impacto_propuesto=unit['impact'],
-                                    id_combinacion=unit['combination_id'], referencia_combinacion=unit['reference'], origen_referencia=unit.get('reference_origin', ''),
-                                    stock_a_escribir='' if unit['quantity'] is None else str(unit['quantity']),
-                                    activo_destino=ps['active'] if is_simple else ('1' if op['preview_only'] else '0'),
-                                    disponible_para_pedido_destino='0' if op['preview_only'] else ps.get('available_for_order', ''), nombre_destino=op['new_name']))
-            for alias in aliases:
-                rows.append(row_for(ps, e, estado='OMITIDO', motivo='EQUIVALENTE_A_' + alias['equivalent_to'],
-                                    presentacion_id=alias['presentation_id'], presentacion=alias['label'], factor_erp=alias['factor']))
-        except (ValueError, InvalidOperation) as exc:
-            rows.append(row_for(ps, e, estado='BLOQUEADO', motivo=str(exc)))
-    return dict(version=2, target=target(settings), created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                settings=settings, operations=operations, rows=rows, unchanged=unchanged)
+    from precios import build_plan as prices_plan
+    return prices_plan(snapshot, erp, settings)
 
 
 def audit(args, settings):
@@ -416,7 +289,8 @@ def approved_operations(plan, path, expected_sha):
     return selected
 
 
-def apply(args, settings):
+def apply(args, settings, adapter=None):
+    adapter = adapter or bridge
     plan = read_json(args.plan)
     if plan['target'] != target(settings) or plan['settings'] != settings or digest(plan) != args.plan_sha256:
         raise ValueError('Plan/configuracion/destino distintos de los revisados')
@@ -432,7 +306,7 @@ def apply(args, settings):
         journal = Path(args.plan).parent / 'aplicacion.json'
         if journal.exists():
             raise ValueError('Este plan ya se intento aplicar. Revise aplicacion.json y genere un nuevo plan')
-        live = bridge(settings, ids=[o['id'] for o in selected])
+        live = adapter(settings, ids=[o['id'] for o in selected])
         current = {p['id']: p for p in live['products']}
         live_erp = erp_read(settings, live['products'])
         for op in selected:
@@ -453,7 +327,7 @@ def apply(args, settings):
             state['in_progress'] = op['id']
             write_json(journal, state)
             try:
-                result = bridge(settings, 'apply', operation=op, authorization='CLI_APPLY_TEST_ONLY' if getattr(args, 'direct_apply', False) else 'CSV_REVIEWED_TEST_ONLY')
+                result = adapter(settings, 'apply', operation=op, authorization='CLI_APPLY_TEST_ONLY' if getattr(args, 'direct_apply', False) else 'CSV_REVIEWED_TEST_ONLY')
                 state['results'].append(result)
                 state['in_progress'] = None
                 write_json(journal, state)

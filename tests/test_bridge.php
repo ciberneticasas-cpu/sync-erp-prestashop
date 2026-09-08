@@ -23,6 +23,7 @@ class Product {
         $this->id = $id;
         foreach (Memory::$products[$id] as $key=>$value) { $this->$key = $value; }
     }
+    public function setFieldsToUpdate(array $fields): void { if ($fields !== ['price'=>true]) { throw new RuntimeException('Solo precio'); } }
     public function update(): bool { Memory::$products[$this->id] = get_object_vars($this); return true; }
     public function deleteDefaultAttributes(): bool {
         foreach (Memory::$combos as &$combo) { if ($combo['id_product'] === $this->id) { $combo['default_on'] = null; } }
@@ -45,6 +46,7 @@ class Combination {
         $this->id = $id;
         if ($id) { foreach (Memory::$combos[$id] as $key=>$value) { $this->$key=$value; } }
     }
+    public function setFieldsToUpdate(array $fields): void { if ($fields !== ['price'=>true]) { throw new RuntimeException('Solo precio'); } }
     public function update(): bool { Memory::$combos[$this->id]=get_object_vars($this); return true; }
     public function add(): bool { $this->id=Memory::$next++; return $this->update(); }
     public function setAttributes($ids): bool { Memory::$associations++; Memory::$combos[$this->id]['attribute_ids']=$ids; return true; }
@@ -71,41 +73,22 @@ class ProductAttribute {
 }
 require __DIR__ . '/../bridge.php';
 function check(bool $condition, string $message): void { if (!$condition) { throw new Exception($message); } }
-Memory::$products[7159]=['price'=>'48000', 'active'=>true, 'cache_default_attribute'=>142, 'name'=>[1=>'Eutarpan']];
-Memory::$combos[142]=['id'=>142, 'id_product'=>7159, 'price'=>0, 'reference'=>'26074', 'minimal_quantity'=>1, 'images'=>[90]];
-Memory::$combos[143]=['id'=>143, 'id_product'=>7159, 'price'=>43200, 'reference'=>'26074', 'minimal_quantity'=>1, 'images'=>[91]];
-$op=['id'=>7159, 'base_price'=>'48000', 'mode'=>'presentations', 'stage_disabled'=>true, 'new_name'=>'', 'presentations'=>[
-    ['combination_id'=>142, 'impact'=>'0', 'net_price'=>'48000', 'reference'=>'026074:BASE', 'label'=>'Caja', 'default'=>true, 'quantity'=>null],
-    ['combination_id'=>143, 'impact'=>'-43200', 'net_price'=>'4800', 'reference'=>'026074:1414', 'label'=>'Sobre', 'default'=>false, 'quantity'=>null],
+Memory::$products[1]=['price'=>'100', 'active'=>true, 'available_for_order'=>true, 'cache_default_attribute'=>142, 'name'=>[1=>'Nombre original']];
+Memory::$combos[142]=['id'=>142,'id_product'=>1,'price'=>0,'reference'=>'caja','minimal_quantity'=>2,'default_on'=>1,'images'=>[90]];
+Memory::$combos[143]=['id'=>143,'id_product'=>1,'price'=>-90,'reference'=>'blister','minimal_quantity'=>3,'default_on'=>null,'images'=>[91]];
+Memory::$stocks=['1:0'=>10,'1:142'=>3,'1:143'=>7];
+$op=['id'=>1,'base_price'=>'200','mode'=>'presentations','prices_only'=>true,'stage_disabled'=>false,'preview_only'=>false,'new_name'=>'','presentations'=>[
+ ['combination_id'=>142,'impact'=>'0','net_price'=>'200','reference'=>'caja','default'=>true,'quantity'=>null],
+ ['combination_id'=>143,'impact'=>'-180','net_price'=>'20','reference'=>'blister','default'=>false,'quantity'=>null]
 ]];
-$result=applyProduct($op);
-check($result['verification']['prices'][1]['visible_price']===4800.0, 'Impacto Eutarpan incorrecto');
-check(Memory::$combos[143]['images']===[91] && Memory::$associations===0, 'No debe borrar imagenes/asociaciones existentes');
-check(!Memory::$products[7159]['active'], 'Presentaciones deben quedar en borrador');
-echo "OK: actualizacion nativa y preservacion de imagenes\n";
-
-Memory::$products[4520]=['price'=>'37350', 'active'=>true, 'cache_default_attribute'=>0, 'name'=>[1=>'Fraccion']];
-$new=$op; $new['id']=4520; $new['base_price']='37350'; $new['new_name']='Ketoprofeno Caja / Blister';
-$new['presentations'][0]=array_merge($op['presentations'][0], ['combination_id'=>0, 'net_price'=>'37350', 'reference'=>'000977:BASE', 'quantity'=>0]);
-$new['presentations'][1]=array_merge($op['presentations'][1], ['combination_id'=>0, 'net_price'=>'12450', 'impact'=>'-24900', 'reference'=>'000977:779', 'label'=>'Blister', 'quantity'=>0]);
-$result=applyProduct($new);
-check(Memory::$associations===2, 'Debe crear dos asociaciones');
-check(count(Memory::$attrs)===2, 'Debe reutilizar grupo y crear valores');
-check(Memory::$products[4520]['cache_default_attribute']===200, 'Predeterminada incorrecta');
-check(Memory::$stocks['4520:201']===0, 'No debe copiar inventario compartido');
-echo "OK: creacion de combinaciones, atributos, predeterminada y stock inicial\n";
-
-Memory::$badEngine=true;
-$before=Memory::$products[7159]; $bad=$op; $bad['base_price']='49000';
-try { applyProduct($bad); throw new Exception('Debio fallar validacion'); }
-catch (RuntimeException $expected) { check(Memory::$products[7159]===$before, 'Debe revertir el producto al fallar la validacion'); }
-echo "OK: rollback ante discrepancia del motor de precios\n";
-Memory::$badEngine=false;
-
-Memory::$products[1]=['price'=>'100', 'active'=>true, 'cache_default_attribute'=>0, 'name'=>[1=>'Simple']];
-$simple=['id'=>1, 'base_price'=>'110', 'mode'=>'simple', 'stage_disabled'=>false, 'new_name'=>'', 'presentations'=>[
-    ['combination_id'=>0, 'impact'=>'0', 'net_price'=>'110', 'reference'=>'1', 'default'=>true, 'quantity'=>null],
-]];
-$count=count(Memory::$combos); applyProduct($simple);
-check(count(Memory::$combos)===$count && Memory::$products[1]['active'], 'Precio simple no debe convertir producto ni desactivarlo');
-echo "OK: actualizacion de precio simple\n";
+$stocks=Memory::$stocks;
+$result=applyPrices($op);
+check($result['verification']['prices'][1]['visible_price']===20.0,'Precio fraccion');
+check(Memory::$stocks===$stocks && Memory::$associations===0 && count(Memory::$combos)===2,'No modificar stock/estructura');
+check(Memory::$products[1]['active'] && Memory::$products[1]['available_for_order'] && Memory::$products[1]['name']===[1=>'Nombre original'],'Preservar publicacion/nombre');
+check(Memory::$combos[143]['minimal_quantity']===3 && Memory::$combos[142]['default_on']===1 && Memory::$combos[143]['images']===[91],'Preservar combinaciones');
+$bad=$op;$bad['prices_only']=false;
+try { applyPrices($bad); throw new Exception('Debio bloquear estructura'); } catch(RuntimeException $expected) {}
+$before=Memory::$products;Memory::$badEngine=true;$bad=$op;$bad['base_price']='300';
+try { applyPrices($bad); throw new Exception('Debio fallar'); } catch(RuntimeException $expected) {check(Memory::$products===$before,'Rollback precio');}
+echo "OK: precios, preservacion de estructura/stock/publicacion y rollback\n";

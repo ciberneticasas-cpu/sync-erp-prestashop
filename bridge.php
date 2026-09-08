@@ -67,7 +67,7 @@ function snapshot(mysqli $db, array $p, array $ids = []): array {
         $where = $ids ? ' AND p.id_product IN ('.implode(',', array_map('intval', $ids)).')' : '';
         $rows = $db->query("SELECT p.id_product AS id, pl.name, p.reference, p.ean13, ps.price,
           ps.active, ps.available_for_order, ps.id_tax_rules_group, ps.cache_default_attribute,
-          p.product_type, ps.unity, ps.unit_price_ratio, ps.ecotax, ps.minimal_quantity,
+          p.product_type, ps.unity, ps.unit_price, ps.unit_price_ratio, ps.ecotax, ps.minimal_quantity,
           COALESCE(sa.quantity,0) AS quantity, COALESCE(sa.out_of_stock,2) AS out_of_stock,
           COALESCE(sa.depends_on_stock,0) AS depends_on_stock
           FROM {$prefix}product p JOIN {$prefix}product_shop ps ON ps.id_product=p.id_product AND ps.id_shop=1
@@ -77,7 +77,7 @@ function snapshot(mysqli $db, array $p, array $ids = []): array {
         $products = [];
         foreach ($rows as $row) { $row['id'] = (int)$row['id']; $row['combinations'] = []; $row['specific_prices'] = []; $products[$row['id']] = $row; }
         $rows = $db->query("SELECT pa.id_product, pa.id_product_attribute AS id, pa.reference, pa.ean13,
-          pas.price, pas.default_on, pas.minimal_quantity, COALESCE(sa.quantity,0) AS quantity,
+          pas.price, pas.unit_price_impact, pas.default_on, pas.minimal_quantity, COALESCE(sa.quantity,0) AS quantity,
           COALESCE(sa.out_of_stock,2) AS out_of_stock, COALESCE(sa.depends_on_stock,0) AS depends_on_stock
           FROM {$prefix}product_attribute pa JOIN {$prefix}product_attribute_shop pas
           ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=1
@@ -134,32 +134,6 @@ function boot(?string $httpHost = null, bool $withKernel = false): void {
     $context->cart->id_currency = $context->currency->id;
     $context->cart->id_lang = $context->language->id;
 }
-function normalized(string $s): string {
-    return mb_strtolower(str_replace(['ó','Ó'], ['o','O'], trim($s)));
-}
-function attributeId(string $label): int {
-    $lang = (int)Configuration::get('PS_LANG_DEFAULT'); $groups = [];
-    foreach (AttributeGroup::getAttributesGroups($lang) as $group) {
-        if (normalized($group['name']) === 'presentacion') { $groups[] = $group; }
-    }
-    demand(count($groups) <= 1, 'Existen varios grupos Presentacion');
-    if (!$groups) {
-        $group = new AttributeGroup(); $group->group_type = 'select'; $group->is_color_group = false;
-        foreach (Language::getLanguages(false) as $language) {
-            $group->name[$language['id_lang']] = 'Presentación'; $group->public_name[$language['id_lang']] = 'Presentación';
-        }
-        demand($group->add(), 'No se pudo crear grupo'); $groupId = (int)$group->id;
-    } else { $groupId = (int)$groups[0]['id_attribute_group']; }
-    $matches = [];
-    foreach (AttributeGroup::getAttributes($lang, $groupId) as $attr) {
-        if (normalized($attr['name']) === normalized($label)) { $matches[] = $attr; }
-    }
-    demand(count($matches) <= 1, 'Valores de atributo duplicados');
-    if ($matches) { return (int)$matches[0]['id_attribute']; }
-    $attr = new ProductAttribute(); $attr->id_attribute_group = $groupId;
-    foreach (Language::getLanguages(false) as $language) { $attr->name[$language['id_lang']] = $label; }
-    demand($attr->add(), 'No se pudo crear atributo'); return (int)$attr->id;
-}
 function verifyProduct(array $operation): array {
     $product = new Product((int)$operation['id'], false, null, 1);
     demand(abs((float)$product->price - (float)$operation['base_price']) < 0.00001, 'Precio padre distinto del aprobado');
@@ -173,8 +147,8 @@ function verifyProduct(array $operation): array {
             demand((int)$combo->id_product === (int)$product->id, 'Combinacion ajena');
             demand(abs((float)$combo->price - (float)$item['impact']) < 0.00001, 'Impacto no coincide');
             demand($combo->reference === $item['reference'], 'Referencia no coincide');
-            demand((int)$combo->minimal_quantity === 1, 'Minimo debe ser 1 presentacion');
-            if ($item['default']) { demand((int)$product->cache_default_attribute === $id, 'Predeterminada incorrecta'); }
+            if (empty($operation['prices_only'])) { demand((int)$combo->minimal_quantity === 1, 'Minimo debe ser 1 presentacion'); }
+            if (empty($operation['prices_only']) && $item['default']) { demand((int)$product->cache_default_attribute === $id, 'Predeterminada incorrecta'); }
         }
         $specific = null;
         $net = Product::getPriceStatic($product->id, false, $id ?: false, 6, null, false, false, 1, false, null, null, null, $specific, false, false);
@@ -182,53 +156,42 @@ function verifyProduct(array $operation): array {
         demand(abs($net-(float)$item['net_price']) < 0.01, 'Motor de precios difiere: revisar precios especificos y reglas fiscales');
         $quantity = StockAvailable::getQuantityAvailableByProduct($product->id, $id, 1);
         if ($item['quantity'] !== null) { demand($quantity === (int)$item['quantity'], 'Stock distinto del aprobado'); }
-        $result[] = ['combination_id'=>$id, 'reference'=>$item['reference'], 'net_price'=>$net, 'visible_price'=>$visible, 'quantity'=>$quantity];
+        $result[] = ['combination_id'=>$id, 'reference'=>$item['reference'], 'net_price'=>$net, 'visible_price'=>$visible, 'quantity'=>$quantity, 'unit_price'=>(float)($product->unit_price ?? 0) + ($id ? (float)($combo->unit_price_impact ?? 0) : 0), 'unit_price_ratio'=>(float)($product->unit_price_ratio ?? 0)];
     }
     if (count($result) > 1) { demand(count(array_unique(array_column($result, 'visible_price'))) === count($result), 'El motor devuelve precios visibles iguales; revisar promociones'); }
     return ['id'=>(int)$product->id, 'prices'=>$result];
 }
-function applyProduct(array $operation): array {
+
+function applyPrices(array $operation): array {
+    demand(!empty($operation['prices_only']) && empty($operation['stage_disabled']) && empty($operation['preview_only']) && empty($operation['new_name']), 'Solo cambios de precio permitidos');
     $db = Db::getInstance(); demand($db->execute('START TRANSACTION'), 'No inicio transaccion');
     try {
         $product = new Product((int)$operation['id'], false, null, 1);
         demand(Validate::isLoadedObject($product), 'Producto inexistente');
-        $product->price = $operation['base_price'];
-        if ($operation['stage_disabled']) { $product->active = false; }
-        if (!empty($operation['preview_only'])) { $product->active = true; $product->available_for_order = false; }
-        if (!empty($operation['new_name'])) {
-            $product->name[(int)Configuration::get('PS_LANG_DEFAULT')] = $operation['new_name'];
+        if ((string)$product->price !== (string)$operation['base_price']) {
+            $product->price = $operation['base_price'];
+            $product->setFieldsToUpdate(['price' => true]);
+            demand($product->update(), 'No se pudo actualizar precio');
         }
-        demand($product->update(), 'No se pudo actualizar producto');
-        $default = 0;
-        foreach ($operation['presentations'] as &$item) {
-            if ($operation['mode'] === 'simple') { continue; }
-            $id = (int)$item['combination_id']; $combo = new Combination($id ?: null, null, 1);
-            if ($id) { demand((int)$combo->id_product === (int)$product->id, 'Combinacion ajena'); }
-            $combo->id_product = (int)$product->id; $combo->price = $item['impact'];
-            $combo->reference = $item['reference']; $combo->minimal_quantity = 1;
-            // Preserve EAN/images/other fields on existing combinations. New fractions have no invented EAN.
-            if ($id) { demand($combo->update(), 'No se pudo actualizar combinacion'); }
-            else {
-                $combo->ean13 = ''; demand($combo->add(), 'No se pudo crear combinacion');
-                demand($combo->setAttributes([attributeId($item['label'])]), 'No se pudo asociar atributo');
+        foreach ($operation['presentations'] as $item) {
+            demand($item['quantity'] === null, 'El sincronizador no escribe stock');
+            if ($operation['mode'] === 'simple') { demand((int)$item['combination_id'] === 0, 'Operacion simple invalida'); continue; }
+            $id = (int)$item['combination_id']; demand($id > 0, 'Falta preparar presentacion');
+            $combo = new Combination($id, null, 1);
+            demand((int)$combo->id_product === (int)$product->id, 'Combinacion ajena');
+            if ((float)$combo->price !== (float)$item['impact']) {
+                $combo->price = $item['impact'];
+                $combo->setFieldsToUpdate(['price' => true]);
+                demand($combo->update(), 'No se pudo actualizar impacto');
             }
-            $item['combination_id'] = (int)$combo->id;
-            if ($item['default']) { $default = (int)$combo->id; }
-            if ($item['quantity'] !== null) {
-                StockAvailable::setQuantity((int)$product->id, (int)$combo->id, (int)$item['quantity'], 1);
-                StockAvailable::setProductOutOfStock((int)$product->id, 0, 1, (int)$combo->id);
-            }
-        }
-        unset($item);
-        if ($operation['mode'] !== 'simple') {
-            demand($default > 0, 'Falta predeterminada');
-            demand($product->deleteDefaultAttributes() && $product->setDefaultAttribute($default), 'No se pudo establecer predeterminada');
         }
         Product::flushPriceCache();
         $verification = verifyProduct($operation);
         demand($db->execute('COMMIT'), 'No se pudo confirmar');
-        return ['operation'=>$operation, 'verification'=>$verification];
-    } catch (Throwable $e) { $db->execute('ROLLBACK'); Product::flushPriceCache(); throw $e; }
+        return ['operation' => $operation, 'verification' => $verification];
+    } catch (Throwable $error) {
+        $db->execute('ROLLBACK'); Product::flushPriceCache(); throw $error;
+    }
 }
 
 if (defined('MERCABOY_LIBRARY_ONLY')) { return; }
@@ -253,6 +216,23 @@ try {
             $result[] = ['id'=>$row['id'], 'prices'=>$prices];
         }
     }
+    elseif ($command === 'apply-prices') {
+        demand(($request['authorization'] ?? '') === 'CLI_APPLY_TEST_ONLY', 'Falta autorizacion');
+        boot(null, true);
+        foreach ($request['operations'] as $operation) {
+            try {
+                $current = snapshot($connection, $parameters, [(int)$operation['id']]);
+                demand(count($current['products']) === 1 && $current['products'][0] == $operation['before'], 'Producto cambio desde la auditoria');
+                $result = applyPrices($operation);
+                echo json_encode(['result' => $result], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), PHP_EOL;
+            } catch (Throwable $error) {
+                $message = $error instanceof RuntimeException && !($error instanceof mysqli_sql_exception) ? $error->getMessage() : 'Fallo interno de PrestaShop';
+                echo json_encode(['error' => ['product_id' => $operation['id'], 'error' => $message]], JSON_THROW_ON_ERROR), PHP_EOL;
+            }
+            flush();
+        }
+        exit;
+    }
     elseif ($command === 'apply' || $command === 'verify') {
         $operation = $request['operation'];
         $current = snapshot($connection, $parameters, [(int)$operation['id']]);
@@ -261,7 +241,7 @@ try {
             demand($current['products'][0] == $operation['before'], 'Producto cambio desde la auditoria: regenere el plan');
         }
         boot(null, $command === 'apply');
-        $result = $command === 'apply' ? applyProduct($operation) : verifyProduct($operation);
+        $result = $command === 'apply' ? applyPrices($operation) : verifyProduct($operation);
     } else { throw new RuntimeException('Comando desconocido'); }
     echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), PHP_EOL;
 } catch (Throwable $e) {
