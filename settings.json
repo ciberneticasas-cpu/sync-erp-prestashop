@@ -1,0 +1,383 @@
+{
+  "prestashop_root": "/var/www/html",
+  "env_file": "/opt/2prestashopsync/.env",
+  "warehouses": [
+    "001",
+    "002",
+    "003"
+  ],
+  "max_plan_age_hours": 24,
+  "mappings": {
+    "4520": {
+      "erp_id": "000977",
+      "product_name": "Ketoprofeno Genfar 100 mg - Caja 30 tabletas / Blíster 10 tabletas",
+      "presentations": {
+        "BASE": {
+          "label": "Caja"
+        },
+        "779": {
+          "label": "Blíster"
+        }
+      }
+    },
+    "4479": {
+      "erp_id": "000333",
+      "product_name": "Furosemida MK 40 mg - Caja 300 tabletas / Blíster 30 tabletas",
+      "presentations": {
+        "BASE": {
+          "label": "Caja"
+        },
+        "990": {
+          "label": "Blíster"
+        }
+      }
+    },
+    "4480": {
+      "erp_id": "021228",
+      "product_name": "Furosemida Genfar 40 mg - Caja 100 tabletas / Blíster 10 tabletas",
+      "presentations": {
+        "BASE": {
+          "label": "Caja"
+        },
+        "995": {
+          "label": "Blíster"
+        }
+      }
+    },
+    "16": {
+      "erp_id": "000004",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "86": {
+      "erp_id": "000051",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "116": {
+      "erp_id": "000139",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "117": {
+      "erp_id": "027755",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "149": {
+      "erp_id": "000055",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "331": {
+      "erp_id": "019333",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "546": {
+      "erp_id": "014149",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "644": {
+      "erp_id": "031779",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "646": {
+      "erp_id": "031778",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "737": {
+      "erp_id": "031378",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto; misma botella de 946 ml, factor 1 revisado",
+      "simple_factor": "1"
+    },
+    "1674": {
+      "erp_id": "023050",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "1736": {
+      "erp_id": "029296",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "1809": {
+      "erp_id": "030713",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "2097": {
+      "erp_id": "031274",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "2159": {
+      "erp_id": "014676",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "2388": {
+      "erp_id": "031463",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "2442": {
+      "erp_id": "009613",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "2794": {
+      "erp_id": "022715",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "2838": {
+      "erp_id": "023658",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "2934": {
+      "erp_id": "019963",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3341": {
+      "erp_id": "031469",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3580": {
+      "erp_id": "031373",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3588": {
+      "erp_id": "031467",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3614": {
+      "erp_id": "030951",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3617": {
+      "erp_id": "030948",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3619": {
+      "erp_id": "030559",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3620": {
+      "erp_id": "030950",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3623": {
+      "erp_id": "030962",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3625": {
+      "erp_id": "030957",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3626": {
+      "erp_id": "030961",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3627": {
+      "erp_id": "030561",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3628": {
+      "erp_id": "030966",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3629": {
+      "erp_id": "030967",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3630": {
+      "erp_id": "030954",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3778": {
+      "erp_id": "021370",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "3792": {
+      "erp_id": "022903",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "3978": {
+      "erp_id": "014903",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "4339": {
+      "erp_id": "009577",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "4540": {
+      "erp_id": "031464",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "4878": {
+      "erp_id": "031099",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "4890": {
+      "erp_id": "031637",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "4951": {
+      "erp_id": "009188",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "4988": {
+      "erp_id": "017708",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "4989": {
+      "erp_id": "030306",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "5183": {
+      "erp_id": "014225",
+      "match_note": "Misma solucion Tukol-D 125 ml; se conserva clave por referencia con precio vigente. La clave nueva del EAN no tiene precio."
+    },
+    "5207": {
+      "erp_id": "029100",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "5216": {
+      "erp_id": "013155",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "5221": {
+      "erp_id": "023049",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "5294": {
+      "erp_id": "030721",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "5319": {
+      "erp_id": "023013",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "5323": {
+      "erp_id": "023438",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "5458": {
+      "erp_id": "031557",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "5459": {
+      "erp_id": "014071",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "5647": {
+      "erp_id": "022067",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "5817": {
+      "erp_id": "031140",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "5837": {
+      "erp_id": "023663",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "5961": {
+      "erp_id": "018634",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "6096": {
+      "erp_id": "025768",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "6097": {
+      "erp_id": "025769",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "6112": {
+      "erp_id": "026564",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "6259": {
+      "erp_id": "012445",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "6425": {
+      "erp_id": "030808",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "6434": {
+      "erp_id": "030965",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "6436": {
+      "erp_id": "030949",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "6456": {
+      "erp_id": "031809",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7082": {
+      "erp_id": "028817",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "7141": {
+      "erp_id": "009643",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7148": {
+      "erp_id": "009596",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "7331": {
+      "erp_id": "013929",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "7342": {
+      "erp_id": "031495",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7363": {
+      "erp_id": "027844",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "7373": {
+      "erp_id": "025080",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se conserva referencia"
+    },
+    "7730": {
+      "erp_id": "030968",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7731": {
+      "erp_id": "030975",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7732": {
+      "erp_id": "030955",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7739": {
+      "erp_id": "031635",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7749": {
+      "erp_id": "030956",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7761": {
+      "erp_id": "031470",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "7812": {
+      "erp_id": "017976",
+      "match_note": "Revision de nombre, tamano y EAN frente a la prioridad heredada; se utiliza EAN coincidente con producto"
+    },
+    "4606": {
+      "erp_id": "015708",
+      "simple_factor": "1",
+      "match_note": "La unica unidad ERP coincide con la fraccion existente; no hay segunda presentacion vendible."
+    },
+    "5087": {
+      "erp_id": "001960",
+      "simple_factor": "1",
+      "match_note": "La unica unidad ERP coincide con la fraccion existente; no hay segunda presentacion vendible."
+    }
+  },
+  "reference_strategy": "erp_tuple",
+  "test_host": "192.168.0.229",
+  "presentation_mode": "visible_preview",
+  "match_strategy": "legacy_priority",
+  "automatic_presentation_names": true,
+  "review_match_conflicts": true,
+  "allow_simple_without_presentations": true,
+  "preserve_nonpresentation_combinations": true
+}

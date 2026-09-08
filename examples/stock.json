@@ -1,0 +1,8 @@
+{
+  "available_base": "2",
+  "reserved_base": "0.3",
+  "units": [
+    {"presentation": "Caja", "factor": "1", "quantity": 1},
+    {"presentation": "Blister", "factor": "0.1", "quantity": 7}
+  ]
+}

@@ -1,0 +1,12 @@
+[package]
+name = "mercaboy_erp_reader"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["macros", "rt-multi-thread", "net", "io-util"] }
+tiberius = { version = "0.12", default-features = false, features = ["chrono", "rustls", "tds73"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+futures-util = "0.3"
+serde_json = "1.0"
+
