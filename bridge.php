@@ -139,8 +139,24 @@ function verifyProduct(array $operation): array {
     demand(abs((float)$product->price - (float)$operation['base_price']) < 0.00001, 'Precio padre distinto del aprobado');
     if ($operation['stage_disabled']) { demand(!(bool)$product->active, 'El borrador no debe estar activo'); }
     if (!empty($operation['preview_only'])) { demand((bool)$product->active && !(bool)$product->available_for_order, 'La vista previa debe estar visible con compra deshabilitada'); }
+    if (isset($operation['pum'])) {
+        demand($product->unity === $operation['pum']['unity'], 'Unidad PUM distinta de la aprobada');
+        demand(abs((float)$product->unit_price - (float)$operation['pum']['unit_price']) < 0.0000011, 'PUM base distinto del aprobado');
+        foreach ($operation['pum']['combinations'] as $pum) {
+            $combination = new Combination((int)$pum['combination_id'], null, 1);
+            demand((int)$combination->id_product === (int)$product->id, 'PUM de combinacion ajena');
+            demand(abs((float)$combination->unit_price_impact - (float)$pum['impact']) < 0.0000011, 'Impacto PUM distinto del aprobado');
+        }
+    }
     $result = [];
-    foreach ($operation['presentations'] as $item) {
+    $items = $operation['presentations'];
+    if (isset($operation['pum']) && $operation['mode'] === 'simple') {
+        foreach ($operation['before']['combinations'] as $combo) {
+            $items[] = ['combination_id'=>$combo['id'], 'impact'=>$combo['price'], 'reference'=>$combo['reference'],
+                        'net_price'=>(float)$operation['base_price'] + (float)$combo['price'], 'quantity'=>null];
+        }
+    }
+    foreach ($items as $item) {
         $id = (int)$item['combination_id'];
         if ($id) {
             $combo = new Combination($id, null, 1);
@@ -156,9 +172,11 @@ function verifyProduct(array $operation): array {
         demand(abs($net-(float)$item['net_price']) < 0.01, 'Motor de precios difiere: revisar precios especificos y reglas fiscales');
         $quantity = StockAvailable::getQuantityAvailableByProduct($product->id, $id, 1);
         if ($item['quantity'] !== null) { demand($quantity === (int)$item['quantity'], 'Stock distinto del aprobado'); }
-        $result[] = ['combination_id'=>$id, 'reference'=>$item['reference'], 'net_price'=>$net, 'visible_price'=>$visible, 'quantity'=>$quantity, 'unit_price'=>(float)($product->unit_price ?? 0) + ($id ? (float)($combo->unit_price_impact ?? 0) : 0), 'unit_price_ratio'=>(float)($product->unit_price_ratio ?? 0)];
+        $unitPrice = (float)($product->unit_price ?? 0) + ($id ? (float)($combo->unit_price_impact ?? 0) : 0);
+        $unitRatio = $unitPrice > 0 ? $net / $unitPrice : 0;
+        $result[] = ['combination_id'=>$id, 'reference'=>$item['reference'], 'net_price'=>$net, 'visible_price'=>$visible, 'quantity'=>$quantity, 'unit_price'=>$unitPrice, 'unit_price_ratio'=>$unitRatio, 'unity'=>$product->unity ?? '', 'visible_unit_price'=>$unitRatio > 0 ? $visible / $unitRatio : 0];
     }
-    if (count($result) > 1) { demand(count(array_unique(array_column($result, 'visible_price'))) === count($result), 'El motor devuelve precios visibles iguales; revisar promociones'); }
+    if ($operation['mode'] === 'presentations' && count($result) > 1) { demand(count(array_unique(array_column($result, 'visible_price'))) === count($result), 'El motor devuelve precios visibles iguales; revisar promociones'); }
     return ['id'=>(int)$product->id, 'prices'=>$result];
 }
 
@@ -168,10 +186,20 @@ function applyPrices(array $operation): array {
     try {
         $product = new Product((int)$operation['id'], false, null, 1);
         demand(Validate::isLoadedObject($product), 'Producto inexistente');
-        if ((string)$product->price !== (string)$operation['base_price']) {
-            $product->price = $operation['base_price'];
-            $product->setFieldsToUpdate(['price' => true]);
-            demand($product->update(), 'No se pudo actualizar precio');
+        $fields = [];
+        if ((float)$product->price !== (float)$operation['base_price']) {
+            $product->price = $operation['base_price']; $fields['price'] = true;
+        }
+        if (isset($operation['pum'])) {
+            foreach (['unity', 'unit_price'] as $field) {
+                if ((string)$product->$field !== (string)$operation['pum'][$field]) {
+                    $product->$field = $operation['pum'][$field]; $fields[$field] = true;
+                }
+            }
+        }
+        if ($fields) {
+            $product->setFieldsToUpdate($fields);
+            demand($product->update(), 'No se pudo actualizar precio/PUM');
         }
         foreach ($operation['presentations'] as $item) {
             demand($item['quantity'] === null, 'El sincronizador no escribe stock');
@@ -183,6 +211,15 @@ function applyPrices(array $operation): array {
                 $combo->price = $item['impact'];
                 $combo->setFieldsToUpdate(['price' => true]);
                 demand($combo->update(), 'No se pudo actualizar impacto');
+            }
+        }
+        foreach ($operation['pum']['combinations'] ?? [] as $pum) {
+            $combo = new Combination((int)$pum['combination_id'], null, 1);
+            demand((int)$combo->id_product === (int)$product->id, 'PUM de combinacion ajena');
+            if ((float)$combo->unit_price_impact !== (float)$pum['impact']) {
+                $combo->unit_price_impact = $pum['impact'];
+                $combo->setFieldsToUpdate(['unit_price_impact' => true]);
+                demand($combo->update(), 'No se pudo actualizar PUM de combinacion');
             }
         }
         Product::flushPriceCache();

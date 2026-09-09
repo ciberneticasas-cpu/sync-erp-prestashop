@@ -1,6 +1,6 @@
 # sync-erp-prestashop
 
-Sincroniza **solo precios** de productos activos y combinaciones existentes. Consulta
+Sincroniza **precios y PUM** de productos activos y combinaciones existentes. Consulta
 el ERP en cada ejecución, excluye fuentes inactivas/descodificadas y genera un CSV
 completo y otro con los cambios realmente aplicados. No crea combinaciones ni repara
 plantillas. El destino de esta versión está protegido para pruebas; producción no se ha tocado.
@@ -8,7 +8,7 @@ plantillas. El destino de esta versión está protegido para pruebas; producció
 ```bash
 cargo build --offline --release
 python3 sincronizar.py            # Consultar y generar CSV
-python3 sincronizar.py --apply    # Actualizar precios válidos
+python3 sincronizar.py --apply    # Actualizar precios y PUM válidos
 python3 instalar_cron.py --apply  # Cada 10 minutos, en este clon
 ```
 

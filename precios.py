@@ -4,12 +4,13 @@ import datetime
 import match_erp
 import vigencia
 import sync
+import pum
 
 
 def build_plan(snapshot, erp, settings):
     if snapshot['target'] != sync.target(settings) or erp['host'] != '192.168.0.231':
         raise ValueError('Destino protegido')
-    operations, rows, unchanged = [], [], 0
+    operations, rows, unchanged, pum_decisions = [], [], 0, {}
     prepared = match_erp.index(erp)
     presentations = collections.defaultdict(list)
     for record in erp['presentations']:
@@ -62,19 +63,21 @@ def build_plan(snapshot, erp, settings):
                     raise ValueError('PENDIENTE_PRESENTACIONES: COMBINACIONES_SOLO_WEB_REVISAR_RETIRO')
                 mode = 'presentations'
             current = {c['id']: c for c in ps['combinations']}
+            pum_update = pum.plan(ps, e, units, base)
+            pum_decisions[str(ps['id'])] = pum_update
             changed = sync.dec(ps['price']) != sync.dec(base) or any(
                 u['combination_id'] and sync.dec(current[u['combination_id']]['price']) != sync.dec(u['impact']) for u in units)
-            if not changed:
+            if not changed and not pum_update['changed']:
                 unchanged += 1
                 continue
             op = dict(id=ps['id'], before=ps, mode=mode, prices_only=True, base_price=base,
                       presentations=units, erp_product=e, erp_presentations=records,
-                      stage_disabled=False, preview_only=False, new_name='')
+                      stage_disabled=False, preview_only=False, new_name='', pum=pum_update)
             operations.append(op)
-            rows.extend(sync.row_for(ps, e, u, estado='PROPUESTO', motivo='SOLO_PRECIO') for u in units)
+            rows.extend(sync.row_for(ps, e, u, estado='PROPUESTO', motivo='PRECIO_Y_PUM' if changed and pum_update['changed'] else 'SOLO_PRECIO' if changed else 'SOLO_PUM') for u in units)
         except (ValueError, ArithmeticError) as error:
             if isinstance(error, vigencia.Excluded):
                 e = error.products[0] if len(error.products) == 1 else None
             rows.append(sync.row_for(ps, e, estado='BLOQUEADO', motivo=str(error)))
     return dict(version=3, target=sync.target(settings), created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                settings=settings, operations=operations, rows=rows, unchanged=unchanged)
+                settings=settings, operations=operations, rows=rows, unchanged=unchanged, pum_decisions=pum_decisions)

@@ -18,12 +18,13 @@ class Db {
     }
 }
 class Product {
+    public $unit_price = 0, $unity = '', $unit_price_ratio = 0;
     public $id, $price, $active, $cache_default_attribute, $name;
     public function __construct($id, ...$rest) {
         $this->id = $id;
         foreach (Memory::$products[$id] as $key=>$value) { $this->$key = $value; }
     }
-    public function setFieldsToUpdate(array $fields): void { if ($fields !== ['price'=>true]) { throw new RuntimeException('Solo precio'); } }
+    public function setFieldsToUpdate(array $fields): void { if (array_diff(array_keys($fields), ['price','unity','unit_price'])) { throw new RuntimeException('Solo precio/PUM'); } }
     public function update(): bool { Memory::$products[$this->id] = get_object_vars($this); return true; }
     public function deleteDefaultAttributes(): bool {
         foreach (Memory::$combos as &$combo) { if ($combo['id_product'] === $this->id) { $combo['default_on'] = null; } }
@@ -41,12 +42,13 @@ class Product {
     }
 }
 class Combination {
+    public $unit_price_impact = 0;
     public $id, $id_product, $price, $reference, $minimal_quantity, $ean13, $default_on, $images;
     public function __construct($id = null, ...$rest) {
         $this->id = $id;
         if ($id) { foreach (Memory::$combos[$id] as $key=>$value) { $this->$key=$value; } }
     }
-    public function setFieldsToUpdate(array $fields): void { if ($fields !== ['price'=>true]) { throw new RuntimeException('Solo precio'); } }
+    public function setFieldsToUpdate(array $fields): void { if (array_diff(array_keys($fields), ['price','unit_price_impact'])) { throw new RuntimeException('Solo precio/PUM'); } }
     public function update(): bool { Memory::$combos[$this->id]=get_object_vars($this); return true; }
     public function add(): bool { $this->id=Memory::$next++; return $this->update(); }
     public function setAttributes($ids): bool { Memory::$associations++; Memory::$combos[$this->id]['attribute_ids']=$ids; return true; }
@@ -92,3 +94,19 @@ try { applyPrices($bad); throw new Exception('Debio bloquear estructura'); } cat
 $before=Memory::$products;Memory::$badEngine=true;$bad=$op;$bad['base_price']='300';
 try { applyPrices($bad); throw new Exception('Debio fallar'); } catch(RuntimeException $expected) {check(Memory::$products===$before,'Rollback precio');}
 echo "OK: precios, preservacion de estructura/stock/publicacion y rollback\n";
+
+Memory::$badEngine=false;
+$op['pum']=['unity'=>'Unidad','unit_price'=>'2','combinations'=>[
+ ['combination_id'=>142,'ratio'=>'100','unit_price'=>'2','impact'=>'0'],
+ ['combination_id'=>143,'ratio'=>'10','unit_price'=>'2','impact'=>'0']
+]];
+$result=applyPrices($op);
+check($result['verification']['prices'][1]['unit_price_ratio']===10.0, 'Ratio de blister debe ser 10, no el ratio padre');
+check($result['verification']['prices'][1]['unit_price']===2.0, 'PUM de blister');
+check(Memory::$stocks===$stocks, 'PUM no cambia stock');
+$before=[Memory::$products, Memory::$combos];
+$bad=$op;$bad['pum']['unity']='Gramo';$bad['pum']['unit_price']='1';
+$bad['pum']['combinations'][1]['impact']='1';Memory::$badEngine=true;
+try { applyPrices($bad); throw new Exception('Debio fallar'); }
+catch(RuntimeException $expected) {check([Memory::$products, Memory::$combos]===$before,'Rollback PUM padre y combinaciones');}
+echo "OK: PUM por presentacion, cambios sin precio y rollback PUM\n";

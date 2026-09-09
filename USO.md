@@ -17,7 +17,7 @@ Cada ejecución genera `reports/sincronizacion_FECHA/`:
 
 - `stock_auditoria_FECHA.csv`: todas las fichas de PrestaShop, incluidas las inactivas.
 - `cambios_precios_FECHA.csv`: únicamente filas de escrituras exitosas que cambiaron el
-  precio base, el impacto o el precio de presentación. Solo cabecera si no hubo cambios.
+  precio base, el impacto, el precio de presentación o el PUM. Solo cabecera si no hubo cambios.
 - `resumen.json`: estados, duración y rutas de informes.
 - `aplicacion.json` y `recibos.jsonl`: resultados de aplicación y recibos por producto.
 
@@ -32,12 +32,51 @@ promociones y descuentos, por lo que no siempre coincide con el importe ERP.
 En combinaciones inexistentes, el precio propuesto no es un precio publicado.
 `presentacion_en_prestashop` y `situacion_presentacion` distinguen ambas situaciones.
 
-El PUM usa `unit_price` más `unit_price_impact` nativos, sin dividir otra vez por el
-contenido de la caja. Se conserva ese precio unitario y su unidad; esta versión no
-recalcula el PUM comercial desde el ERP. `pum_ratio` es el valor previo almacenado y
-`pum_ratio_final` registra el derivado por PrestaShop al guardar un precio. PrestaShop 8
-recalcula ese campo de compatibilidad automáticamente; no es una cantidad que publique
-el sincronizador. Un PUM comercial incorrecto de origen requiere una revisión separada.
+El PUM se recalcula en cada ejecución, incluso cuando el precio de venta no cambia:
+
+1. Lee `HeadProd.PUMContenidoInterno` y `HeadProd.PUMUnidadMedida` del ERP.
+2. Normaliza kilos/gramos y litros/mililitros y convierte el contenido ERP a la unidad
+   vendida en PrestaShop usando el factor comercial del producto simple.
+3. Contrasta contenido **y unidad** con el nombre de PrestaShop. Si coinciden, usa ERP;
+   si difieren, usa el nombre y marca `pum_discrepancia=SI`.
+4. Si solo se puede interpretar una fuente, la utiliza. Si ninguna contiene una cantidad
+   y unidad interpretables, utiliza `Unidad`, ratio 1 por presentación vendida.
+
+`pum_fuente` explica la elección; las columnas `pum_contenido_erp`,
+`pum_unidad_erp`, `pum_contenido_erp_convertido`, `pum_contenido_nombre` y
+`pum_unidad_nombre` permiten revisarla. La discrepancia persiste en el CSV completo
+incluso después de sincronizar. Los productos excluidos o bloqueados conservan su PUM.
+
+Se interpretan gramos, kilos, mililitros, litros y cantidades explícitas de tabletas,
+cápsulas, ampollas, sobres y unidades. Los miligramos de dosis y denominadores de
+concentraciones como `160mg/5ml` no se consideran contenido del envase. `3.000 gr`
+se interpreta como 3000 gramos. Un peso acompañado de un número de unidades se toma
+como peso total; solo se multiplica con indicación por unidad (`c/u`, `cada unidad`),
+repuestos o una expresión explícita como `pack 6 x 200ml`. Se reconocen totales,
+contenidos adicionales de la misma unidad y ofertas «pague/lleve». No se deducen
+cantidades del nombre ERP ni de un PUM anterior. Los nombres que contienen varias
+cantidades sin una interpretación única llevan `pum_observacion=NOMBRE_CON_CONTENIDOS_AMBIGUOS_REVISAR`;
+en ese caso se usa el PUM ERP válido y, si no existe, el valor por defecto.
+
+`pum_ratio` es el contenido seleccionado de la presentación; `pum_precio_unitario`
+es precio sin IVA dividido por ese contenido. Para alternativas con contenido conocido,
+el contenido base se multiplica por el factor de la presentación. Si se usó el valor
+por defecto, cada presentación se considera una unidad vendida. Por ejemplo, un
+nombre sin cantidad como «Bedoyecta ampolla», sin PUM ERP, utiliza ratio 1 tanto para
+Caja como para UNIDAD; no se inventa cuántas ampollas contiene la caja.
+
+Se guardan `unity`, `unit_price` y `unit_price_impact` mediante objetos nativos.
+PrestaShop calcula su campo de compatibilidad `unit_price_ratio`; no se escribe
+manualmente. `pum_ratio_final` refleja el cociente efectivo por combinación, con las
+pequeñas diferencias de redondeo de seis decimales. El precio visible por unidad incluye
+los impuestos y descuentos de la tienda y se registra en `pum_precio_visible_verificado`
+cuando hubo aplicación verificada. Así, una caja de 100 tabletas a 48000 y un blíster
+de 10 a 4800 muestran 480 por Unidad en ambas presentaciones, antes de descuentos.
+
+Las columnas `pum_*_anterior` y `pum_*_propuesto` separan lo existente de la propuesta;
+`pum_estado` indica si se aplicó. `cambios_precios_*.csv` también incluye cambios
+exclusivamente del PUM, identificados por `tipo_cambio=SOLO_PUM`; las demás categorías
+son `SOLO_PRECIO` y `PRECIO_Y_PUM`. Solo se registran escrituras confirmadas.
 
 ## Vigencia y correspondencias
 
@@ -112,5 +151,5 @@ viejos: los identificadores de combinaciones pueden diferir entre clones.
 Se exige base local `mercaboy_pruebas`, raíz `/var/www/html`, una sola tienda y dominio
 igual a la IP LAN configurada; el ERP permitido es 192.168.0.231, de solo lectura.
 **Esta versión no está habilitada para cPanel/mercaboy.com.** El ensayo en un clon nuevo,
-la adaptación de rutas/permisos y las políticas de baja, stock y PUM comercial pendientes
+la adaptación de rutas/permisos y las políticas de baja y stock pendientes y la revisión de nombres ambiguos
 son parte de la preparación para producción.

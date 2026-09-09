@@ -10,6 +10,7 @@ import sync
 
 def product(combinations=None):
     return dict(id=7159, name='Eutarpan 100 Tabletas', reference='26074', ean13='7707019328622',
+                unity='Unidad', unit_price='480.000000', unit_price_ratio='100.000000',
                 price='48000.000000', active='1', ecotax='0', product_type='standard',
                 combinations=combinations or [])
 

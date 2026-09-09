@@ -19,6 +19,37 @@ import sync
 LEGACY_FIELDS = 'referencia,nombre_prestashop,nombre_corto_erp,factor_conversion_precio,inventario_erp,inventario_para_prestashop,inventario_mariadb,pendiente,final_sync,precio_mariadb,precio_sin_impuesto_erp,ivaid,precio_erp,precio_para_prestashop,pum_fuente,pum_unidad,pum_ratio,pum_precio_unitario,otras_listas_precios_erp,erp_host,accion,unidad_erp,unidad_mariadb_inferida'.split(',')
 EXTRA_FIELDS = 'id_producto,erp_id,criterio_match,observacion_match,nombre_erp,presentacion_id,presentacion,id_combinacion,referencia_combinacion,impacto_precio,nombre_destino,resultado,motivo,precio_final_sin_iva,precio_visible_verificado,url_revision,stock_se_actualiza,estado_erp,marcas_vigencia_erp,elegible_precio,motivo_exclusion,activo_prestashop,precio_base_anterior,precio_base_nuevo,impacto_anterior,presentacion_estado_erp,presentacion_venta_erp,presentacion_en_prestashop,situacion_presentacion,cantidad_presentaciones_erp,cantidad_presentaciones_web,maneja_presentaciones_erp,pum_ratio_final'.split(',')
 
+PUM_FIELDS = 'pum_observacion,pum_discrepancia,pum_contenido_erp,pum_unidad_erp,pum_contenido_erp_convertido,pum_unidad_erp_normalizada,pum_contenido_nombre,pum_unidad_nombre,pum_unidad_anterior,pum_precio_unitario_anterior,pum_ratio_anterior,pum_unidad_propuesta,pum_precio_unitario_propuesto,pum_ratio_propuesto,pum_estado,pum_cambio_aplicado,pum_precio_visible_verificado,tipo_cambio'.split(',')
+EXTRA_FIELDS += PUM_FIELDS
+
+
+def pum_report(row, ps, combo, decision):
+    old_price = sync.dec(ps.get('unit_price') or 0) + sync.dec((combo or {}).get('unit_price_impact') or 0)
+    actual = sync.dec(row['precio_mariadb'] or 0)
+    old_ratio = sync.money(actual / old_price) if old_price > 0 else '0.000000'
+    row.update(pum_unidad_anterior=ps.get('unity', ''), pum_precio_unitario_anterior=sync.money(old_price),
+               pum_ratio_anterior=old_ratio, pum_ratio=old_ratio, pum_ratio_final=old_ratio, pum_cambio_aplicado='NO')
+    if not decision:
+        return
+    selected = next((c for c in decision['combinations'] if c['combination_id'] == row['id_combinacion']), decision)
+    row.update(pum_observacion=decision['note'], pum_discrepancia=decision['discrepancy'], pum_contenido_erp=decision['erp_content'],
+               pum_unidad_erp=decision['erp_unit'], pum_contenido_erp_convertido=decision['erp_ratio'],
+               pum_unidad_erp_normalizada=decision['erp_unity'], pum_contenido_nombre=decision['name_ratio'],
+               pum_unidad_nombre=decision['name_unity'], pum_unidad_propuesta=decision['unity'],
+               pum_precio_unitario_propuesto=selected['unit_price'], pum_ratio_propuesto=selected['ratio'],
+               pum_estado=row['resultado'])
+    if row['resultado'] in ('PROPUESTO', 'APLICADO', 'SIN_CAMBIOS'):
+        row.update(pum_fuente=decision['source'], pum_unidad=decision['unity'],
+                   pum_precio_unitario=selected['unit_price'], pum_ratio=selected['ratio'])
+    changed = old_price != sync.dec(selected['unit_price']) or ps.get('unity', '') != decision['unity']
+    price_changed = (sync.dec(row['precio_base_anterior']) != sync.dec(row['precio_base_nuevo']) or
+                     sync.dec(row['impacto_anterior'] or 0) != sync.dec(row['impacto_precio'] or 0))
+    row['tipo_cambio'] = 'PRECIO_Y_PUM' if changed and price_changed else 'SOLO_PUM' if changed else 'SOLO_PRECIO' if price_changed else 'SIN_CAMBIOS'
+    if row['resultado'] in ('PROPUESTO', 'APLICADO') and changed:
+        row['accion'] = 'ACTUALIZAR_PRECIO_Y_PUM' if price_changed else 'ACTUALIZAR_PUM'
+    if row['resultado'] == 'APLICADO' and changed:
+        row['pum_cambio_aplicado'] = 'SI'
+
 
 def report_rows(snapshot, erp, plan, settings, journal=None):
     prepared = match_erp.index(erp)
@@ -44,7 +75,7 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
             if e['manages'] == 'S' and not presentations[e['erp_id']]:
                 warning += '; ERP indica presentaciones sin definicion vendible: solo precio de la unidad existente'
             if operation:
-                units = operation['presentations']
+                units = [dict(u) for u in operation['presentations']]
             else:
                 units, aliases, issues = sync.presentations_for(e, presentations[e['erp_id']])
                 if len(units) == 1:
@@ -68,6 +99,12 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
         for c in ps['combinations']:
             if c['id'] not in represented and all(sync.norm(a['group_name'])=='presentacion' for a in c['attributes']):
                 units.append(dict(presentation_id='SOLO_WEB:'+str(c['id']), label=' / '.join(a['label'] for a in c['attributes']), factor='', net_price='', combination_id=c['id'], reference=c['reference'], impact=c['price']))
+        decision = (operation or {}).get('pum', plan.get('pum_decisions', {}).get(str(ident)))
+        if decision and not any(u.get('combination_id') for u in units):
+            for c in ps['combinations']:
+                units.append(dict(presentation_id='EXISTENTE:'+str(c['id']), label=' / '.join(a['label'] for a in c['attributes']),
+                                  factor=units[0]['factor'], net_price=sync.money(sync.dec((operation or {}).get('base_price', ps['price']))+sync.dec(c['price'])),
+                                  combination_id=c['id'], reference=c['reference'], impact=c['price']))
         has_blister = any('blister' in sync.norm(u['label']) or sync.norm(u['label']) == 'sobre' for u in units) or any('blister' in sync.norm(r['label']) for r in presentations.get((e or {}).get('erp_id'), [])) or any('blister' in sync.norm(a['label']) for c in ps['combinations'] for a in c['attributes'])
         for u in units:
             row = {field: '' for field in LEGACY_FIELDS + EXTRA_FIELDS}
@@ -117,10 +154,12 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
                 row['precio_final_sin_iva'] = actual_price
             if not reason:
                 row['url_revision'] = 'http://{}/index.php?controller=product&id_product={}&id_product_attribute={}'.format(sync.test_host(settings),ident,u.get('combination_id',0))
+            pum_report(row, ps, combo, decision)
             if ident in applied:
                 verification = next(v for v in applied[ident]['verification']['prices'] if v['combination_id']==u['combination_id'])
                 if 'unit_price_ratio' in verification: row['pum_ratio_final']=verification['unit_price_ratio']
                 if 'unit_price' in verification: row['pum_precio_unitario']=verification['unit_price']
+                row['pum_precio_visible_verificado']=verification.get('visible_unit_price', '')
                 row.update(precio_final_sin_iva=u['net_price'], precio_visible_verificado=verification['visible_price'],
                     url_revision='http://{}/index.php?controller=product&id_product={}&id_product_attribute={}'.format(sync.test_host(settings),ident,u['combination_id']))
                 if operation['mode']=='presentations' and u.get('quantity') is not None:
@@ -140,6 +179,7 @@ def write_csv(path, rows):
         for row in rows:
             # Protect spreadsheet formulas in textual fields, preserving signed amounts.
             numeric={'factor_conversion_precio','inventario_erp','inventario_para_prestashop','inventario_mariadb','final_sync','precio_mariadb','precio_sin_impuesto_erp','ivaid','precio_erp','precio_para_prestashop','pum_ratio','pum_precio_unitario','impacto_precio','precio_final_sin_iva','precio_visible_verificado'}
+            numeric.update(['precio_base_anterior', 'precio_base_nuevo', 'impacto_anterior', 'pum_ratio_final', 'pum_ratio_anterior', 'pum_ratio_propuesto', 'pum_precio_unitario_anterior', 'pum_precio_unitario_propuesto', 'pum_precio_visible_verificado', 'pum_contenido_erp', 'pum_contenido_erp_convertido', 'pum_contenido_nombre'])
             writer.writerow({k:("'"+str(v) if k not in numeric and str(v).lstrip().startswith(('=','+','-','@')) else v) for k,v in row.items()})
     tmp.replace(path)
 
@@ -148,7 +188,7 @@ def price_changes(rows):
     return [r for r in rows if r['resultado'] == 'APLICADO' and (
         sync.dec(r['precio_mariadb'] or 0) != sync.dec(r['precio_final_sin_iva'] or 0) or
         sync.dec(r['precio_base_anterior']) != sync.dec(r['precio_base_nuevo']) or
-        sync.dec(r['impacto_anterior'] or 0) != sync.dec(r['impacto_precio'] or 0))]
+        sync.dec(r['impacto_anterior'] or 0) != sync.dec(r['impacto_precio'] or 0) or r.get('pum_cambio_aplicado') == 'SI')]
 
 
 def run(args, settings):
@@ -185,7 +225,7 @@ def run(args, settings):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--apply',action='store_true',help='Actualizar exclusivamente precios existentes')
+    parser.add_argument('--apply',action='store_true',help='Actualizar precios y PUM de productos existentes')
     parser.add_argument('--product',type=int,action='append')
     parser.add_argument('--output',help='Directorio nuevo para informes')
     parser.add_argument('--settings',default=str(sync.ROOT/'settings.json'))
