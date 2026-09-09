@@ -219,6 +219,7 @@ def run(args, settings):
     workbook_path = output/('stock_auditoria_'+stamp+'.xlsx')
     fields = LEGACY_FIELDS + EXTRA_FIELDS + libro_auditoria.FIELDS
     sheets = libro_auditoria.classify(report_rows(snapshot, erp, plan, settings), erp, catalog, settings, fields, initial_catalog=initial)
+    libro_auditoria.validate_price_plan(plan, sheets)
     sheet_counts = libro_auditoria.write(workbook_path, sheets, fields)
     print('Libro: '+str(workbook_path), flush=True)
     # Large raw ERP evidence is optional for a job running 144 times/day.

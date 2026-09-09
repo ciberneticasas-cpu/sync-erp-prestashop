@@ -189,6 +189,7 @@ function applyPrices(array $operation): array {
     try {
         $product = new Product((int)$operation['id'], false, null, 1);
         demand(Validate::isLoadedObject($product), 'Producto inexistente');
+        demand((string)$product->active === '1', 'Destino PrestaShop no activo');
         $fields = [];
         if ((float)$product->price !== (float)$operation['base_price']) {
             $product->price = $operation['base_price']; $fields['price'] = true;

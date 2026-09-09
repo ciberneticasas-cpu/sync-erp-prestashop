@@ -123,3 +123,15 @@ check(Memory::$combos[150]['price']==='20','Impacto desde base congelada');
 check($r['verification']['prices'][1]['net_price']===120.0,'Verificar impacto inicial aplicado');
 check(Memory::$products[2]['name']===[1=>'Nombre conservado'],'Conservar nombre al restaurar impacto');
 echo "OK: impacto inicial de variante y nombre conservado\n";
+
+Memory::$badEngine=false;
+foreach ([false, null, ''] as $inactive) {
+    Memory::$products[1]['active']=$inactive;
+    $before=[Memory::$products, Memory::$combos, Memory::$stocks];
+    try { applyPrices($op); throw new Exception('Debio bloquear PS no activo'); }
+    catch (RuntimeException $expected) {
+        check(strpos($expected->getMessage(), 'no activo')!==false, 'Motivo de bloqueo');
+        check([Memory::$products, Memory::$combos, Memory::$stocks]===$before, 'Inactivo sin escrituras');
+    }
+}
+echo "OK: estado PS inactivo o nulo impide escrituras\n";

@@ -73,3 +73,13 @@ class Prices(unittest.TestCase):
             self.assertEqual(journal['results'],[])
             self.assertEqual(journal['errors'][0]['product_id'],7159)
             self.assertIn('ERP_CAMBIO',journal['errors'][0]['error'])
+
+    def test_null_or_inactive_current_and_initial_states_never_plan_prices(self):
+        for initial_state,dest_state in [('1','0'),('1',None),('0','1'),(None,'1'),('','1')]:
+            s,e,c=self.ready();s['baseline']=copy.deepcopy(s)
+            s['baseline']['products'][0]['active']=initial_state
+            s['products'][0]['active']=dest_state;e['products'][0]['gross']='55000'
+            self.assertFalse(sync.build_plan(s,e,c)['operations'])
+        for erp_state in [None,'','I','X']:
+            s,e,c=self.ready();e['products'][0].update(state=erp_state,gross='55000')
+            self.assertFalse(sync.build_plan(s,e,c)['operations'])

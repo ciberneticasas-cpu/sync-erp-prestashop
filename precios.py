@@ -26,6 +26,8 @@ def build_plan(snapshot, erp, settings):
         if str(ps['active']) != '1':
             continue
         try:
+            if str(dest.get('active')) != '1':
+                raise ValueError('DESTINO_PRESTASHOP_NO_ACTIVO')
             if 'baseline' in snapshot and dest['id'] not in frozen:
                 raise ValueError('PRODUCTO_SIN_BASE_CONGELADA')
             mapping = settings.get('mappings', {}).get(str(ps['id']), {})

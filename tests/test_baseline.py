@@ -38,13 +38,13 @@ class Baseline(unittest.TestCase):
         self.assertEqual(op['initial']['price'],'48000.000000')
         self.assertEqual(op['new_name'],'')
 
-    def test_initial_active_controls_eligibility_without_writing_it(self):
+    def test_initial_and_current_active_are_required_without_writing_them(self):
         live,e,c=self.ready();live['baseline']['products'][0]['active']='0';live['products'][0]['price']='99999'
         plan=sync.build_plan(live,e,c);self.assertFalse(plan['operations'])
         self.assertTrue(all(r['resultado']=='INACTIVO_PRESTASHOP' for r in sincronizar.report_rows(live,e,plan,c)))
         live,e,c=self.ready();live['products'][0].update(active='0',price='99999')
-        op=sync.build_plan(live,e,c)['operations'][0]
-        self.assertFalse(op['stage_disabled']);self.assertFalse(op['preview_only']);self.assertEqual(op['before']['active'],'0')
+        plan=sync.build_plan(live,e,c);self.assertFalse(plan['operations'])
+        self.assertIn('DESTINO_PRESTASHOP_NO_ACTIVO',plan['rows'][0]['motivo'])
 
     def test_new_combination_has_no_invented_previous_price(self):
         live,e,c=self.ready();live['baseline']['products'][0]['combinations']=[]

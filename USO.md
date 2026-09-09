@@ -70,35 +70,47 @@ Las pestañas de fichas existentes conservan las columnas anteriores; la de ERP 
 PrestaShop coloca primero la identificación, nombre, estado, stock y precio del ERP.
 No se publican existencias ERP.
 
-Las pestañas, en este orden, son:
+Las pestañas son excluyentes y se muestran en este orden:
 
-1. **Activos - factor no estándar:** vista adicional de las filas activas en ambos sistemas
-   cuyo `factor_conversion_precio` no pertenece a **6, 4, 2.5, 2, 1.5, 1, 0.5**.
-   La comparación es numérica exacta: `1.000000` equivale a `1` y `2,5` a `2.5`.
-   Un factor vacío o inválido también aparece, identificado en `motivo_clasificacion`.
-   Se evalúa cada presentación: una caja con factor 1 no entra por tener un blister con
-   factor 0.1; la fila del blister sí entra.
-2. **Activos ambos - simples:** ERP con `estado=A` y PrestaShop activo, sin múltiples
-   presentaciones. Puede incluir variantes de talla u otros atributos.
-3. **Activos ambos - presentaciones:** los activos en ambos con más de una presentación
-   ERP real o varias combinaciones del grupo Presentación en la web. Incluye alternativas
-   ERP pendientes de preparar; se conserva el estado de advertencia correspondiente.
-4. **ERP inactivo - PS activo:** `estado=I` en ERP y activo en PrestaShop.
-5. **ERP activo - PS inactivo:** `estado=A` en ERP e inactivo en PrestaShop.
-6. **ERP sin PrestaShop:** registros ERP, tanto activos como inactivos, sin correspondencia
-   por referencia, códigos de barras o mapeo en el catálogo completo del destino.
-7. **PS activo sin ERP:** activo en PrestaShop, sin correspondencia en el ERP completo.
-8. **PS inactivo sin ERP:** inactivo en PrestaShop, sin correspondencia en el ERP completo.
-9. **Otros y por revisar:** ambos inactivos, estado desconocido o correspondencia sin resolver.
+1. **Activos ambos - presentaciones:** activos en ERP y PS, con más de una presentación
+   ERP real o varias combinaciones del grupo Presentación en PS, cualquiera que sea su
+   factor. Incluye presentaciones pendientes de preparar, con su advertencia.
+2. **Activos ambos - simples:** activos en ambos, sin otras presentaciones y con factores
+   estándar: **6, 4, 2.5, 2, 1.5, 1, 0.5**. Puede haber variantes de talla u otros atributos.
+   La comparación es numérica: `6.` equivale a `6`, `1.000000` a `1` y `2,5` a `2.5`.
+3. **Activos - factor no estándar:** los demás activos en ambos, que no entraron en las
+   dos anteriores. Incluye factores vacíos o inválidos, señalados en `motivo_clasificacion`.
+4. **ERP inactivo - PS activo:** ERP `I`, PS `1`.
+5. **ERP activo - PS inactivo:** ERP `A`, PS `0`.
+6. **PS activo sin ERP:** PS activo sin correspondencia en el ERP completo.
+7. **PS inactivo sin ERP:** PS inactivo sin correspondencia en el ERP completo.
+8. **ERP activo sin PS:** ERP activo sin correspondencia en el catálogo completo de PS.
+9. **ERP inactivo sin PS:** ERP inactivo sin correspondencia en el catálogo completo de PS.
+10. **ERP nulo:** registro ERP existente con estado vacío o NULL. Incluye los que no
+    tienen correspondencia PS. No significa que el producto no exista en ERP.
+11. **PS nulo:** estado inicial PS vacío o NULL; incluye fichas sin origen congelado.
+    Si también hay estado ERP nulo, prevalece la pestaña anterior.
+12. **Otros y por revisar:** lo no clasificado antes, incluidos ambos inactivos, estados
+    distintos de A/I o 1/0 y correspondencias ambiguas.
 
-La clasificación usa el estado explícito A/I, separado de `elegible_precio`: una marca
-«no usar» puede impedir la sincronización aunque el registro ERP todavía figure activo.
-El estado inicial de PrestaShop sigue viniendo de `.227`; el actual del destino permanece
-visible en `activo_destino_antes`. Cada ficha existente aparece en una sola pestaña de
-clasificación, con sus filas de presentaciones agrupadas, y puede aparecer además en la
-primera vista de factores. Para sumar productos o filas sin duplicar, se excluye esa
-primera pestaña. Se conservan todos los campos de auditoría, incluidas sugerencias,
-discrepancias, valores iniciales y valores del destino.
+La prioridad es por ficha completa: todas sus filas permanecen juntas. Si una ficha sin
+otras presentaciones tiene alguna fila con factor no estándar, toda la ficha entra en
+la tercera pestaña. No se repiten productos entre pestañas; ya no existe una vista
+adicional duplicada para factores. Se conservan sugerencias y todos los datos de auditoría.
+
+Solo las tres primeras pestañas pueden dar lugar a actualizaciones. Estar en ellas no
+obliga a actualizar: siguen vigentes las comprobaciones de precio, factor, PUM,
+correspondencia, presentaciones y marcas ERP como «no usar». `elegible_precio=SI` exige
+además estado actual activo en PS y resultado SIN_CAMBIOS, PROPUESTO o APLICADO; las
+pestañas informativas siempre indican `NO`. Las escrituras efectivas quedan en el CSV
+de cambios, no se deducen únicamente de esa columna.
+
+Antes de enviar el lote al escritor se verifica que cada operación pertenezca a una
+única categoría de las tres permitidas y sea elegible. Se vuelve a comprobar la fuente
+ERP antes del lote y el escritor comprueba que el producto PS esté activo antes de
+modificarlo. Un destino inactivo o nulo bloquea la escritura aunque `.227` esté activo.
+La clasificación y los valores iniciales siguen usando `.227`; `activo_destino_antes`
+permite ver el estado actual. Los nombres, las existencias y el estado activo no se escriben.
 
 Para detectar ERP sin PrestaShop se consultan todos los productos del destino, también
 cuando se usa `--product`: esa lista siempre tiene alcance global. Las pestañas de fichas

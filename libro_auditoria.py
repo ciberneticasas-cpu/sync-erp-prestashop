@@ -14,13 +14,18 @@ SIMPLE_SHEET = 'Activos ambos - simples'
 MULTIPLE_SHEET = 'Activos ambos - presentaciones'
 ERP_INACTIVE_SHEET = 'ERP inactivo - PS activo'
 PS_INACTIVE_SHEET = 'ERP activo - PS inactivo'
-ERP_ABSENT_PS_SHEET = 'ERP sin PrestaShop'
+ERP_ACTIVE_ABSENT_PS_SHEET = 'ERP activo sin PS'
+ERP_INACTIVE_ABSENT_PS_SHEET = 'ERP inactivo sin PS'
+ERP_NULL_SHEET = 'ERP nulo'
+PS_NULL_SHEET = 'PS nulo'
 PS_ACTIVE_ABSENT_ERP_SHEET = 'PS activo sin ERP'
 PS_INACTIVE_ABSENT_ERP_SHEET = 'PS inactivo sin ERP'
 REVIEW_SHEET = 'Otros y por revisar'
-SHEETS = [FACTOR_SHEET, SIMPLE_SHEET, MULTIPLE_SHEET, ERP_INACTIVE_SHEET,
-          PS_INACTIVE_SHEET, ERP_ABSENT_PS_SHEET, PS_ACTIVE_ABSENT_ERP_SHEET,
-          PS_INACTIVE_ABSENT_ERP_SHEET, REVIEW_SHEET]
+SHEETS = [MULTIPLE_SHEET, SIMPLE_SHEET, FACTOR_SHEET, ERP_INACTIVE_SHEET,
+          PS_INACTIVE_SHEET, PS_ACTIVE_ABSENT_ERP_SHEET, PS_INACTIVE_ABSENT_ERP_SHEET,
+          ERP_ACTIVE_ABSENT_PS_SHEET, ERP_INACTIVE_ABSENT_PS_SHEET,
+          ERP_NULL_SHEET, PS_NULL_SHEET, REVIEW_SHEET]
+PRICE_SHEETS = frozenset(SHEETS[:3])
 STANDARD_FACTORS = frozenset(Decimal(v) for v in ('6', '4', '2.5', '2', '1.5', '1', '0.5'))
 FIELDS = ['referencia_erp', 'codigo_barras_erp', 'codigo_barras_erp_2', 'codigo_barras_erp_3', 'clasificacion_informe', 'motivo_clasificacion']
 NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
@@ -76,8 +81,8 @@ def classify(rows, erp, catalog, settings, fields, initial_catalog=None):
     for pid, family in grouped.items():
         first = family[0]
         e = products.get(first['erp_id'])
-        state = str(first['estado_erp']).strip().upper()
-        active = str(first['activo_prestashop'])
+        state = str(first.get('estado_erp') or '').strip().upper()
+        active = str(first.get('activo_prestashop') if first.get('activo_prestashop') is not None else '').strip()
         combinations = web.get(pid, {}).get('combinations', [])
         multiple = len(combinations) > 1 and any(sync.norm(a['group_name']) == 'presentacion' for c in combinations for a in c['attributes'])
         if e:
@@ -93,12 +98,16 @@ def classify(rows, erp, catalog, settings, fields, initial_catalog=None):
             name = PS_ACTIVE_ABSENT_ERP_SHEET
         elif absent and active == '0':
             name = PS_INACTIVE_ABSENT_ERP_SHEET
-        elif state == 'A' and active == '1':
-            name = MULTIPLE_SHEET if multiple else SIMPLE_SHEET
+        elif e is not None and state == 'A' and active == '1':
+            name = MULTIPLE_SHEET if multiple else FACTOR_SHEET if any(factor_review_reason(r.get('factor_conversion_precio')) for r in family) else SIMPLE_SHEET
         elif state == 'I' and active == '1':
             name = ERP_INACTIVE_SHEET
         elif state == 'A' and active == '0':
             name = PS_INACTIVE_SHEET
+        elif e is not None and not state:
+            name = ERP_NULL_SHEET
+        elif not active:
+            name = PS_NULL_SHEET
         else:
             name = REVIEW_SHEET
         for row in family:
@@ -106,33 +115,51 @@ def classify(rows, erp, catalog, settings, fields, initial_catalog=None):
             row.update(clasificacion_informe=name, motivo_clasificacion='Estado ERP='+state+'; activo PrestaShop='+active)
             if absent:
                 row['motivo_clasificacion'] = 'Sin correspondencia por referencia, EAN o mapeo en el ERP completo; activo PrestaShop='+active
+            if name == FACTOR_SHEET:
+                row['motivo_clasificacion'] += '; '+(factor_review_reason(row.get('factor_conversion_precio')) or 'Otra fila de esta ficha tiene factor no estándar')
+            if name in (ERP_NULL_SHEET, PS_NULL_SHEET):
+                row['motivo_clasificacion'] += '; Estado vacío o NULL'+('; sin ficha inicial PS' if identity is None else '')
+            row['elegible_precio'] = 'SI' if (name in PRICE_SHEETS and e is not None and not vigencia.marks(e)
+                and str(web.get(pid, {}).get('active')) == '1'
+                and row.get('resultado') in ('SIN_CAMBIOS', 'PROPUESTO', 'APLICADO')) else 'NO'
             sheets[name].append(row)
-            if e is not None and state == 'A' and active == '1':
-                reason = factor_review_reason(row.get('factor_conversion_precio'))
-                if reason:
-                    review = dict(row, clasificacion_informe=FACTOR_SHEET,
-                                  motivo_clasificacion=row['motivo_clasificacion']+'; '+reason)
-                    sheets[FACTOR_SHEET].append(review)
     # The presence check uses the COMPLETE destination catalog, even with --product.
     present = present_erp_ids(erp, catalog, settings, prepared)
     for e in erp['products']:
         if e['erp_id'] in present:
             continue
+        state = str(e.get('state') or '').strip().upper()
+        name = ERP_ACTIVE_ABSENT_PS_SHEET if state == 'A' else ERP_INACTIVE_ABSENT_PS_SHEET if state == 'I' else ERP_NULL_SHEET if not state else REVIEW_SHEET
         row = {field: '' for field in fields}
         row.update(referencia=e.get('reference', ''), erp_id=e['erp_id'], nombre_erp=e['name'],
                    nombre_corto_erp=e.get('short_name', ''), estado_erp=e.get('state', ''),
                    inventario_erp=e.get('qty', ''), precio_erp=e.get('gross', ''), ivaid=e.get('tax', ''),
                    unidad_erp=e.get('unit', ''), erp_host=erp['host'], maneja_presentaciones_erp=e.get('manages', ''),
-                   marcas_vigencia_erp=';'.join(vigencia.marks(e)), elegible_precio='NO' if vigencia.marks(e) else 'SI',
+                   marcas_vigencia_erp=';'.join(vigencia.marks(e)), elegible_precio='NO',
                    resultado='SIN_PRODUCTO_PRESTASHOP', accion='SOLO_AUDITORIA', stock_se_actualiza='NO',
-                   clasificacion_informe=ERP_ABSENT_PS_SHEET, motivo_clasificacion='Sin correspondencia por referencia, EAN o mapeo en el catalogo completo del destino')
+                   clasificacion_informe=name, motivo_clasificacion='Sin correspondencia por referencia, EAN o mapeo en el catalogo completo del destino')
         try:
             row['precio_sin_impuesto_erp'] = sync.money(sync.net_price(e['gross'], e['tax']))
         except (ValueError, ArithmeticError):
             pass
         enrich(row, e)
-        sheets[ERP_ABSENT_PS_SHEET].append(row)
+        sheets[name].append(row)
     return sheets
+
+
+def validate_price_plan(plan, sheets):
+    """Impide enviar al escritor una ficha informativa o no elegible."""
+    categories = collections.defaultdict(set)
+    eligible = collections.defaultdict(list)
+    for name, rows in sheets.items():
+        for row in rows:
+            if row.get('id_producto'):
+                categories[row['id_producto']].add(name)
+                eligible[row['id_producto']].append(row.get('elegible_precio') == 'SI')
+    for op in plan['operations']:
+        names = categories.get(op['id'], set())
+        if len(names) != 1 or not names.issubset(PRICE_SHEETS) or not all(eligible[op['id']]):
+            raise ValueError('PLAN_PRECIO_FUERA_DE_CATEGORIAS_ELEGIBLES: '+str(op['id']))
 
 
 def enrich(row, erp):
@@ -193,7 +220,7 @@ def write(path, sheets, fields):
             archive.writestr('xl/styles.xml', STYLES)
             types = [('xl/workbook.xml', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml'), ('xl/styles.xml','application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml')]
             for index, (name, rows) in enumerate(sheets.items(),1):
-                leading = ['erp_id', 'nombre_erp', 'referencia_erp', 'nombre_corto_erp', 'estado_erp', 'inventario_erp', 'precio_erp', 'precio_sin_impuesto_erp', 'unidad_erp', 'codigo_barras_erp', 'marcas_vigencia_erp', 'elegible_precio', 'motivo_clasificacion'] if name == ERP_ABSENT_PS_SHEET else []
+                leading = ['erp_id', 'nombre_erp', 'referencia_erp', 'nombre_corto_erp', 'estado_erp', 'inventario_erp', 'precio_erp', 'precio_sin_impuesto_erp', 'unidad_erp', 'codigo_barras_erp', 'marcas_vigencia_erp', 'elegible_precio', 'motivo_clasificacion'] if name in (ERP_ACTIVE_ABSENT_PS_SHEET, ERP_INACTIVE_ABSENT_PS_SHEET) else []
                 ordered_fields = [f for f in leading if f in fields] + [f for f in fields if f not in leading]
                 end = column(len(ordered_fields))+str(len(rows)+1)
                 columns = ''.join('<col min="{0}" max="{0}" width="{1}" customWidth="1"/>'.format(i, 52 if 'nombre' in f or f in ('motivo','motivo_clasificacion') else 22 if f in NUMERIC else 26) for i,f in enumerate(ordered_fields,1))
