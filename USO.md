@@ -13,6 +13,48 @@ python3 sincronizar.py --apply
 python3 sincronizar.py --apply --product 4480
 ```
 
+## Punto de partida congelado en desarrollo
+
+La configuración actual contiene `baseline_host: 192.168.0.227`. En cada corrida se
+consulta por SSH `root@192.168.0.227` el snapshot completo de MariaDB: productos,
+nombres, referencias, códigos, precios, PUM, estado, existencias, combinaciones,
+atributos y precios específicos. Se reutilizan exactamente las consultas del lector
+local. El puerto MariaDB respondió, pero las credenciales locales no permitieron acceso
+remoto; se utiliza SSH sin cambiar permisos de la base ni instalar archivos remotos.
+Si falla esta lectura, la ejecución se detiene antes de escribir. No usa el destino ni
+un CSV anterior como sustituto. Se exige clave SSH disponible para el usuario del cron.
+
+La copia `.229` sigue siendo el destino. Su lectura actual sirve para localizar las
+combinaciones, detectar qué importes requieren una escritura y comprobar que el producto
+no cambió entre la auditoría y la aplicación. La elegibilidad, la correspondencia ERP y
+los datos iniciales de cálculo parten de `.227`. El motor del destino verifica los
+precios publicados. El nombre, el estado activo y las existencias no se escriben.
+
+Los campos anteriores (`nombre_prestashop`, `referencia`, `inventario_mariadb`,
+`precio_mariadb`, `precio_base_anterior`, `impacto_anterior`, `activo_prestashop` y los
+`pum_*_anterior`) corresponden a `.227`. Las columnas `*_destino_antes` conservan la
+lectura real previa a esta corrida en `.229`. `nombre_destino_actual` identifica el
+nombre que permanece publicado. `final_sync` refleja la existencia del destino, que
+el sincronizador no modifica. `base_host` y `base_huella` identifican la lectura inicial.
+
+Las combinaciones se corresponden por grupo y valor de atributo dentro del mismo
+producto; no se presupone que IDs reutilizados entre clones sean equivalentes. Si una
+combinación fue creada después de la copia, `base_estado=COMBINACION_NUEVA_SIN_BASE` y
+sus importes/existencias anteriores quedan vacíos. Los datos originales del padre
+siguen disponibles en `precio_base_anterior`, `inventario_producto_inicial`,
+`pum_precio_producto_inicial`, `pum_ratio_producto_inicial` y `pum_unidad_anterior`.
+No se asigna a una combinación nueva un precio histórico que nunca tuvo.
+
+`diferencia_respecto_base` compara el resultado con el punto de partida y puede seguir
+en SI durante muchas corridas. `cambio_aplicado_en_corrida` y el archivo de cambios
+registran únicamente escrituras reales de esa ejecución; una diferencia histórica no
+provoca escrituras ni registros repetidos. Un producto del destino ausente en la base
+inicial queda bloqueado para revisión.
+
+Este modo corresponde al entorno de desarrollo. Al preparar el uso normal se debe
+revisar expresamente la configuración del origen. El cron permanece pausado desde
+la solicitud del usuario; este ajuste no lo reinstala.
+
 Cada ejecución genera `reports/sincronizacion_FECHA/`:
 
 - `stock_auditoria_FECHA.csv`: todas las fichas de PrestaShop, incluidas las inactivas.
@@ -26,7 +68,7 @@ carpeta nueva. `--settings ARCHIVO` permite elegir la configuración de otro clo
 Las primeras 23 columnas del CSV se conservan; todas las filas de productos con Blíster
 quedan al final. No se publican existencias ERP.
 
-`precio_mariadb` es el precio anterior sin impuestos; `precio_para_prestashop` el propuesto;
+`precio_mariadb` es el precio inicial congelado sin impuestos (o el precio actual previo si no se configura base congelada); `precio_para_prestashop` el propuesto;
 `precio_final_sin_iva` el resultado. El precio visible verificado por el motor incluye
 promociones y descuentos, por lo que no siempre coincide con el importe ERP.
 En combinaciones inexistentes, el precio propuesto no es un precio publicado.
@@ -64,6 +106,17 @@ el contenido base se multiplica por el factor de la presentación. Si se usó el
 por defecto, cada presentación se considera una unidad vendida. Por ejemplo, un
 nombre sin cantidad como «Bedoyecta ampolla», sin PUM ERP, utiliza ratio 1 tanto para
 Caja como para UNIDAD; no se inventa cuántas ampollas contiene la caja.
+
+Cuando el nombre inicial dice explícitamente «Fracción» y hay una única alternativa
+ERP, ese contenido corresponde a la fracción: se divide por su factor ERP para obtener
+el contenido de la caja. Por ejemplo, 10 tabletas / 0,1 = 100 tabletas. Se conserva el
+nombre original; `pum_factor_presentacion_nombre` y `pum_contenido_nombre_convertido`
+explican la conversión. Varias alternativas posibles requieren revisión.
+
+Ninguno de los dos programas cambia nombres de productos ni escribe nombres en el ERP.
+Las recomendaciones quedan en `nombre_suguerido_prestashop` y
+`motivo_nombre_sugerido`. Los mapeos `product_name` son sugerencias, no instrucciones
+de renombrado. El preparador rechaza planes antiguos con `new_name` no vacío.
 
 Se guardan `unity`, `unit_price` y `unit_price_impact` mediante objetos nativos.
 PrestaShop calcula su campo de compatibilidad `unit_price_ratio`; no se escribe

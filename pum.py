@@ -93,11 +93,16 @@ def from_name(name):
     return values.pop() if len(values) == 1 else None
 
 
-def resolve(ps, erp, base_factor):
+def resolve(ps, erp, base_factor, name_factor='1'):
     source = normalized(erp.get('content', ''), erp.get('content_unit', ''))
     if source:
         source = source[0] * sync.dec(base_factor), source[1]
     named = from_name(ps['name'])
+    raw_named = named
+    if named:
+        if sync.dec(name_factor) <= 0:
+            raise ValueError('FACTOR_CONTENIDO_NOMBRE_INVALIDO')
+        named = named[0] / sync.dec(name_factor), named[1]
     ambiguous = not named and bool(re.search(NUMBER + r'\s*(?:' + MEASURE + '|' + COUNT + r')\b', sync.norm(ps['name'])))
     same = source and named and source[1] == named[1] and abs(source[0] - named[0]) <= Decimal('0.00001')
     if source and named:
@@ -112,12 +117,12 @@ def resolve(ps, erp, base_factor):
                 discrepancy='SI' if source and named and not same else 'NO',
                 erp_content=str(erp.get('content') or ''), erp_unit=erp.get('content_unit') or '',
                 erp_ratio=sync.money(source[0]) if source else '', erp_unity=source[1] if source else '',
-                name_ratio=sync.money(named[0]) if named else '', name_unity=named[1] if named else '')
+                name_factor=str(name_factor), name_ratio=sync.money(raw_named[0]) if raw_named else '', name_base_ratio=sync.money(named[0]) if named else '', name_unity=named[1] if named else '')
 
 
-def plan(ps, erp, units, base):
+def plan(ps, erp, units, base, name_factor='1'):
     base_unit = next(u for u in units if u['presentation_id'] == 'BASE')
-    decision = resolve(ps, erp, base_unit['factor'])
+    decision = resolve(ps, erp, base_unit['factor'], name_factor)
     ratio = sync.dec(decision['ratio'])
     decision['unit_price'] = sync.money(sync.dec(base) / ratio)
     combinations = []
@@ -135,7 +140,24 @@ def plan(ps, erp, units, base):
         combinations.append(dict(combination_id=combo['id'], ratio=sync.money(content), unit_price=unit_price,
                                  impact=sync.money(sync.dec(unit_price) - sync.dec(decision['unit_price']))))
     decision['combinations'] = combinations
-    current = {c['id']: c for c in ps['combinations']}
-    decision['changed'] = ps.get('unity', '') != decision['unity'] or sync.dec(ps.get('unit_price') or 0) != sync.dec(decision['unit_price']) or any(
-        sync.dec(current[c['combination_id']].get('unit_price_impact') or 0) != sync.dec(c['impact']) for c in combinations)
+    decision['changed'] = changed(ps, decision)
     return decision
+
+
+def changed(ps, decision):
+    current = {c['id']: c for c in ps['combinations']}
+    return ps.get('unity', '') != decision['unity'] or sync.dec(ps.get('unit_price') or 0) != sync.dec(decision['unit_price']) or any(
+        sync.dec(current[c['combination_id']].get('unit_price_impact') or 0) != sync.dec(c['impact']) for c in decision['combinations'])
+
+
+def initial_name_factor(ps, erp, units):
+    """El nombre explícito de una fracción describe esa alternativa, no la caja."""
+    if 'fraccion' not in sync.norm(ps['name']) or not from_name(ps['name']):
+        return '1'
+    alternatives = [u for u in units if u['presentation_id'] != 'BASE']
+    if len(alternatives) != 1:
+        raise ValueError('NOMBRE_FRACCION_CON_VARIAS_ALTERNATIVAS_REQUIERE_REVISION')
+    factor = sync.dec(alternatives[0]['factor'])
+    inverse = 1 / factor
+    nearest = inverse.to_integral_value()
+    return str(1 / nearest) if nearest > 0 and abs(inverse-nearest) < Decimal('.00001') else str(factor)

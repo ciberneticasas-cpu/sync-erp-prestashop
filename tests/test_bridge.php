@@ -110,3 +110,16 @@ $bad['pum']['combinations'][1]['impact']='1';Memory::$badEngine=true;
 try { applyPrices($bad); throw new Exception('Debio fallar'); }
 catch(RuntimeException $expected) {check([Memory::$products, Memory::$combos]===$before,'Rollback PUM padre y combinaciones');}
 echo "OK: PUM por presentacion, cambios sin precio y rollback PUM\n";
+
+Memory::$badEngine=false;
+Memory::$products[2]=['price'=>'100','active'=>true,'available_for_order'=>true,'name'=>[1=>'Nombre conservado'],'unity'=>'Unidad','unit_price'=>'10'];
+Memory::$combos[150]=['id'=>150,'id_product'=>2,'price'=>'999','unit_price_impact'=>0,'reference'=>'talla','minimal_quantity'=>1];
+$initialImpact=['id'=>2,'before'=>['combinations'=>[['id'=>150,'price'=>'999','reference'=>'talla']]],'mode'=>'simple','prices_only'=>true,'stage_disabled'=>false,'preview_only'=>false,'new_name'=>'','base_price'=>'100',
+ 'presentations'=>[['combination_id'=>0,'impact'=>'0','net_price'=>'100','reference'=>'simple','quantity'=>null]],
+ 'combination_prices'=>[['combination_id'=>150,'impact'=>'20']],
+ 'pum'=>['unity'=>'Unidad','unit_price'=>'10','combinations'=>[['combination_id'=>150,'impact'=>'2','unit_price'=>'12','ratio'=>'10']]]];
+$r=applyPrices($initialImpact);
+check(Memory::$combos[150]['price']==='20','Impacto desde base congelada');
+check($r['verification']['prices'][1]['net_price']===120.0,'Verificar impacto inicial aplicado');
+check(Memory::$products[2]['name']===[1=>'Nombre conservado'],'Conservar nombre al restaurar impacto');
+echo "OK: impacto inicial de variante y nombre conservado\n";

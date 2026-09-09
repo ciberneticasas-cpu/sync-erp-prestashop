@@ -379,5 +379,6 @@
   "automatic_presentation_names": true,
   "review_match_conflicts": true,
   "allow_simple_without_presentations": true,
-  "preserve_nonpresentation_combinations": true
+  "preserve_nonpresentation_combinations": true,
+  "baseline_host": "192.168.0.227"
 }

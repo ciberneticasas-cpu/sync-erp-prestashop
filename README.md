@@ -17,6 +17,9 @@ La preparación de Caja/Blíster y la reparación de Undefined están en el repo
 Instalar ambos directorios uno junto al otro. El sincronizador funciona por sí solo;
 el preparador reutiliza su lector ERP y reglas de precio.
 
+En desarrollo, los datos iniciales se leen completos de `.227` por SSH y las escrituras
+se verifican en `.229`. Los nombres solo se sugieren en el CSV; ambos programas los conservan.
+
 Ver [uso, CSV y cambios de presentaciones](USO.md) y [validación de la separación](VALIDACION.md).
 La documentación de versiones anteriores conserva valor histórico; la entrada vigente es
 `sincronizar.py`. No utilizar planes guardados de versiones anteriores.

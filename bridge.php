@@ -151,7 +151,9 @@ function verifyProduct(array $operation): array {
     $result = [];
     $items = $operation['presentations'];
     if (isset($operation['pum']) && $operation['mode'] === 'simple') {
+        $impacts = array_column($operation['combination_prices'] ?? [], 'impact', 'combination_id');
         foreach ($operation['before']['combinations'] as $combo) {
+            $combo['price'] = $impacts[$combo['id']] ?? $combo['price'];
             $items[] = ['combination_id'=>$combo['id'], 'impact'=>$combo['price'], 'reference'=>$combo['reference'],
                         'net_price'=>(float)$operation['base_price'] + (float)$combo['price'], 'quantity'=>null];
         }
@@ -181,6 +183,7 @@ function verifyProduct(array $operation): array {
 }
 
 function applyPrices(array $operation): array {
+    demand(!defined('TEST_HOST') || TEST_HOST !== '192.168.0.227', 'La base congelada .227 no admite escrituras');
     demand(!empty($operation['prices_only']) && empty($operation['stage_disabled']) && empty($operation['preview_only']) && empty($operation['new_name']), 'Solo cambios de precio permitidos');
     $db = Db::getInstance(); demand($db->execute('START TRANSACTION'), 'No inicio transaccion');
     try {
@@ -211,6 +214,15 @@ function applyPrices(array $operation): array {
                 $combo->price = $item['impact'];
                 $combo->setFieldsToUpdate(['price' => true]);
                 demand($combo->update(), 'No se pudo actualizar impacto');
+            }
+        }
+        foreach ($operation['combination_prices'] ?? [] as $item) {
+            demand($operation['mode'] === 'simple', 'Impactos iniciales solo para variantes sin presentacion');
+            $combo = new Combination((int)$item['combination_id'], null, 1);
+            demand((int)$combo->id_product === (int)$product->id, 'Combinacion ajena');
+            if ((float)$combo->price !== (float)$item['impact']) {
+                $combo->price = $item['impact']; $combo->setFieldsToUpdate(['price'=>true]);
+                demand($combo->update(), 'No se pudo actualizar impacto inicial');
             }
         }
         foreach ($operation['pum']['combinations'] ?? [] as $pum) {

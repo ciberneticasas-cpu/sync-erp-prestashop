@@ -15,12 +15,14 @@ import subprocess
 import sys
 import match_erp
 import sync
+import base_congelada
+import nombres
 
 LEGACY_FIELDS = 'referencia,nombre_prestashop,nombre_corto_erp,factor_conversion_precio,inventario_erp,inventario_para_prestashop,inventario_mariadb,pendiente,final_sync,precio_mariadb,precio_sin_impuesto_erp,ivaid,precio_erp,precio_para_prestashop,pum_fuente,pum_unidad,pum_ratio,pum_precio_unitario,otras_listas_precios_erp,erp_host,accion,unidad_erp,unidad_mariadb_inferida'.split(',')
 EXTRA_FIELDS = 'id_producto,erp_id,criterio_match,observacion_match,nombre_erp,presentacion_id,presentacion,id_combinacion,referencia_combinacion,impacto_precio,nombre_destino,resultado,motivo,precio_final_sin_iva,precio_visible_verificado,url_revision,stock_se_actualiza,estado_erp,marcas_vigencia_erp,elegible_precio,motivo_exclusion,activo_prestashop,precio_base_anterior,precio_base_nuevo,impacto_anterior,presentacion_estado_erp,presentacion_venta_erp,presentacion_en_prestashop,situacion_presentacion,cantidad_presentaciones_erp,cantidad_presentaciones_web,maneja_presentaciones_erp,pum_ratio_final'.split(',')
 
 PUM_FIELDS = 'pum_observacion,pum_discrepancia,pum_contenido_erp,pum_unidad_erp,pum_contenido_erp_convertido,pum_unidad_erp_normalizada,pum_contenido_nombre,pum_unidad_nombre,pum_unidad_anterior,pum_precio_unitario_anterior,pum_ratio_anterior,pum_unidad_propuesta,pum_precio_unitario_propuesto,pum_ratio_propuesto,pum_estado,pum_cambio_aplicado,pum_precio_visible_verificado,tipo_cambio'.split(',')
-EXTRA_FIELDS += PUM_FIELDS
+EXTRA_FIELDS += PUM_FIELDS + base_congelada.FIELDS + ['nombre_suguerido_prestashop', 'motivo_nombre_sugerido', 'pum_factor_presentacion_nombre', 'pum_contenido_nombre_convertido']
 
 
 def pum_report(row, ps, combo, decision):
@@ -35,7 +37,7 @@ def pum_report(row, ps, combo, decision):
     row.update(pum_observacion=decision['note'], pum_discrepancia=decision['discrepancy'], pum_contenido_erp=decision['erp_content'],
                pum_unidad_erp=decision['erp_unit'], pum_contenido_erp_convertido=decision['erp_ratio'],
                pum_unidad_erp_normalizada=decision['erp_unity'], pum_contenido_nombre=decision['name_ratio'],
-               pum_unidad_nombre=decision['name_unity'], pum_unidad_propuesta=decision['unity'],
+               pum_unidad_nombre=decision['name_unity'], pum_factor_presentacion_nombre=decision.get('name_factor', '1'), pum_contenido_nombre_convertido=decision.get('name_base_ratio', decision['name_ratio']), pum_unidad_propuesta=decision['unity'],
                pum_precio_unitario_propuesto=selected['unit_price'], pum_ratio_propuesto=selected['ratio'],
                pum_estado=row['resultado'])
     if row['resultado'] in ('PROPUESTO', 'APLICADO', 'SIN_CAMBIOS'):
@@ -64,13 +66,15 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
     presentations = collections.defaultdict(list)
     for r in erp['presentations']: presentations[r['erp_id']].append(r)
     rows = []
+    frozen = {p['id']: p for p in snapshot.get('baseline', {}).get('products', [])}
     for ps in snapshot['products']:
+        initial = frozen.get(ps['id'], ps)
         ident = ps['id']; mapping = settings.get('mappings', {}).get(str(ident), {})
         operation = applied.get(ident, {}).get('operation', operations.get(ident))
         reason = '; '.join(sorted(set(blocked[ident])))
         e, criterion, warning, units = None, '', '', []
         try:
-            e, criterion, warning = match_erp.resolve(ps, erp, mapping, prepared)
+            e, criterion, warning = match_erp.resolve(initial, erp, mapping, prepared)
             warning = mapping.get('match_note', warning)
             if e['manages'] == 'S' and not presentations[e['erp_id']]:
                 warning += '; ERP indica presentaciones sin definicion vendible: solo precio de la unidad existente'
@@ -101,10 +105,13 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
                 units.append(dict(presentation_id='SOLO_WEB:'+str(c['id']), label=' / '.join(a['label'] for a in c['attributes']), factor='', net_price='', combination_id=c['id'], reference=c['reference'], impact=c['price']))
         decision = (operation or {}).get('pum', plan.get('pum_decisions', {}).get(str(ident)))
         if decision and not any(u.get('combination_id') for u in units):
-            for c in ps['combinations']:
+            expected_impacts = {c['combination_id']: c['impact'] for c in (operation or {}).get('combination_prices', [])}
+            for current_combo in ps['combinations']:
+                c = dict(current_combo, price=expected_impacts.get(current_combo['id'], current_combo['price']))
                 units.append(dict(presentation_id='EXISTENTE:'+str(c['id']), label=' / '.join(a['label'] for a in c['attributes']),
                                   factor=units[0]['factor'], net_price=sync.money(sync.dec((operation or {}).get('base_price', ps['price']))+sync.dec(c['price'])),
                                   combination_id=c['id'], reference=c['reference'], impact=c['price']))
+        suggested, suggestion_reason = nombres.suggest(initial, e, settings, units)
         has_blister = any('blister' in sync.norm(u['label']) or sync.norm(u['label']) == 'sobre' for u in units) or any('blister' in sync.norm(r['label']) for r in presentations.get((e or {}).get('erp_id'), [])) or any('blister' in sync.norm(a['label']) for c in ps['combinations'] for a in c['attributes'])
         for u in units:
             row = {field: '' for field in LEGACY_FIELDS + EXTRA_FIELDS}
@@ -114,7 +121,7 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
             status = 'ERROR' if ident in failed else 'APLICADO' if ident in applied else 'BLOQUEADO' if reason else 'PROPUESTO' if operation else 'SIN_CAMBIOS'
             if reason.startswith('FUENTE_ERP_EXCLUIDA'): status = 'EXCLUIDO_ERP'
             elif reason.startswith('PENDIENTE_PRESENTACIONES'): status = 'PENDIENTE_PRESENTACIONES'
-            if str(ps['active']) != '1': status = 'INACTIVO_PRESTASHOP'
+            if str(initial['active']) != '1': status = 'INACTIVO_PRESTASHOP'
             record = next((r for r in erp.get('all_presentations', erp['presentations']) if r['erp_id']==(e or {}).get('erp_id') and r['presentation_id']==u['presentation_id']), {})
             is_base = u['presentation_id']=='BASE'
             is_existing = bool(combo) or (is_base and not ps['combinations'])
@@ -164,11 +171,14 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
                     url_revision='http://{}/index.php?controller=product&id_product={}&id_product_attribute={}'.format(sync.test_host(settings),ident,u['combination_id']))
                 if operation['mode']=='presentations' and u.get('quantity') is not None:
                     row['stock_se_actualiza']='CERO_COMBINACION_NUEVA';row['final_sync']=u['quantity']
+            row.update(nombre_suguerido_prestashop=suggested, motivo_nombre_sugerido=suggestion_reason)
             row['_blister']=has_blister
             rows.append(row)
     rows.sort(key=lambda r:(r['_blister'], -sync.dec(r['factor_conversion_precio'] or 0) if not r['_blister'] else 0,
                             int(r['id_producto']), r['presentacion_id']!='BASE', str(r['presentacion_id'])))
     for row in rows: row.pop('_blister')
+    if 'baseline' in snapshot:
+        rows = base_congelada.report(rows, snapshot['baseline'], snapshot, price_changes(rows))
     return rows
 
 
@@ -185,10 +195,10 @@ def write_csv(path, rows):
 
 
 def price_changes(rows):
-    return [r for r in rows if r['resultado'] == 'APLICADO' and (
+    return [r for r in rows if r['resultado'] == 'APLICADO' and (r.get('cambio_aplicado_en_corrida') == 'SI' if r.get('base_host') else (
         sync.dec(r['precio_mariadb'] or 0) != sync.dec(r['precio_final_sin_iva'] or 0) or
         sync.dec(r['precio_base_anterior']) != sync.dec(r['precio_base_nuevo']) or
-        sync.dec(r['impacto_anterior'] or 0) != sync.dec(r['impacto_precio'] or 0) or r.get('pum_cambio_aplicado') == 'SI')]
+        sync.dec(r['impacto_anterior'] or 0) != sync.dec(r['impacto_precio'] or 0) or r.get('pum_cambio_aplicado') == 'SI'))]
 
 
 def run(args, settings):
@@ -196,8 +206,11 @@ def run(args, settings):
     stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     output = Path(args.output) if args.output else sync.ROOT/'reports'/('sincronizacion_'+stamp)
     output.mkdir(parents=True, exist_ok=False)
+    initial = base_congelada.read(settings, args.product) if settings.get('baseline_host') else None
     snapshot = sync.bridge(settings, ids=args.product or [])
-    erp = sync.erp_read(settings, snapshot['products'])
+    if initial is not None:
+        snapshot['baseline'] = initial
+    erp = sync.erp_read(settings, (initial or snapshot)['products'])
     plan = sync.build_plan(snapshot, erp, settings)
     csv_path = output/('stock_auditoria_'+stamp+'.csv')
     write_csv(csv_path, report_rows(snapshot, erp, plan, settings))
@@ -214,7 +227,7 @@ def run(args, settings):
     changes = price_changes(rows)
     write_csv(changes_path, changes)
     counts = {state:len({r['id_producto'] for r in rows if r['resultado']==state}) for state in {r['resultado'] for r in rows}}
-    summary = dict(target=sync.target(settings), apply=args.apply, products=len(snapshot['products']), states=counts,
+    summary = dict(target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, apply=args.apply, products=len(snapshot['products']), states=counts,
                    csv=str(csv_path), changes_csv=str(changes_path), changed_rows=len(changes),
                    duration_seconds=round(time.monotonic()-started,3),
                    all_resolved=not any(counts.get(k,0) for k in ['BLOQUEADO','ERROR','PROPUESTO','PENDIENTE_PRESENTACIONES']))
