@@ -1,13 +1,13 @@
 # sync-erp-prestashop
 
 Sincroniza **precios y PUM** de productos activos y combinaciones existentes. Consulta
-el ERP en cada ejecución, excluye fuentes inactivas/descodificadas y genera un CSV
-completo y otro con los cambios realmente aplicados. No crea combinaciones ni repara
+el ERP en cada ejecución, excluye fuentes inactivas/descodificadas y genera un libro Excel
+con pestañas de auditoría y un CSV con los cambios realmente aplicados. No crea combinaciones ni repara
 plantillas. El destino de esta versión está protegido para pruebas; producción no se ha tocado.
 
 ```bash
 cargo build --offline --release
-python3 sincronizar.py            # Consultar y generar CSV
+python3 sincronizar.py            # Consultar y generar Excel
 python3 sincronizar.py --apply    # Actualizar precios y PUM válidos
 python3 instalar_cron.py --apply  # Cada 10 minutos, en este clon
 ```
@@ -18,8 +18,8 @@ Instalar ambos directorios uno junto al otro. El sincronizador funciona por sí 
 el preparador reutiliza su lector ERP y reglas de precio.
 
 En desarrollo, los datos iniciales se leen completos de `.227` por SSH y las escrituras
-se verifican en `.229`. Los nombres solo se sugieren en el CSV; ambos programas los conservan.
+se verifican en `.229`. Los nombres solo se sugieren en los informes; ambos programas los conservan.
 
-Ver [uso, CSV y cambios de presentaciones](USO.md) y [validación de la separación](VALIDACION.md).
+Ver [uso, Excel y cambios de presentaciones](USO.md) y [validación de la separación](VALIDACION.md).
 La documentación de versiones anteriores conserva valor histórico; la entrada vigente es
 `sincronizar.py`. No utilizar planes guardados de versiones anteriores.

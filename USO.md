@@ -57,7 +57,7 @@ la solicitud del usuario; este ajuste no lo reinstala.
 
 Cada ejecución genera `reports/sincronizacion_FECHA/`:
 
-- `stock_auditoria_FECHA.csv`: todas las fichas de PrestaShop, incluidas las inactivas.
+- `stock_auditoria_FECHA.xlsx`: libro Excel con las pestañas de auditoría detalladas abajo.
 - `cambios_precios_FECHA.csv`: únicamente filas de escrituras exitosas que cambiaron el
   precio base, el impacto, el precio de presentación o el PUM. Solo cabecera si no hubo cambios.
 - `resumen.json`: estados, duración y rutas de informes.
@@ -65,8 +65,43 @@ Cada ejecución genera `reports/sincronizacion_FECHA/`:
 
 `--evidence` añade lectura ERP, snapshot y plan completos. `--output RUTA` exige una
 carpeta nueva. `--settings ARCHIVO` permite elegir la configuración de otro clon local.
-Las primeras 23 columnas del CSV se conservan; todas las filas de productos con Blíster
-quedan al final. No se publican existencias ERP.
+El CSV completo de auditoría se sustituye por el Excel. El CSV de cambios se conserva.
+Las pestañas de fichas existentes conservan las columnas anteriores; la de ERP sin
+PrestaShop coloca primero la identificación, nombre, estado, stock y precio del ERP.
+No se publican existencias ERP.
+
+Las pestañas, en este orden, son:
+
+1. **Activos ambos - simples:** ERP con `estado=A` y PrestaShop activo, sin múltiples
+   presentaciones. Puede incluir variantes de talla u otros atributos.
+2. **Activos ambos - presentaciones:** los activos en ambos con más de una presentación
+   ERP real o varias combinaciones del grupo Presentación en la web. Incluye alternativas
+   ERP pendientes de preparar; se conserva el estado de advertencia correspondiente.
+3. **ERP inactivo - PS activo:** `estado=I` en ERP y activo en PrestaShop.
+4. **ERP activo - PS inactivo:** `estado=A` en ERP e inactivo en PrestaShop.
+5. **ERP sin PrestaShop:** registros ERP, tanto activos como inactivos, sin correspondencia
+   por referencia, códigos de barras o mapeo en el catálogo completo del destino.
+6. **Otros y por revisar:** ambos inactivos, estado desconocido o correspondencia sin resolver.
+
+La clasificación usa el estado explícito A/I, separado de `elegible_precio`: una marca
+«no usar» puede impedir la sincronización aunque el registro ERP todavía figure activo.
+El estado inicial de PrestaShop sigue viniendo de `.227`; el actual del destino permanece
+visible en `activo_destino_antes`. Cada ficha existente aparece en una sola pestaña,
+con sus filas de presentaciones agrupadas. Se conservan todos los campos de auditoría,
+incluidas sugerencias, discrepancias, valores iniciales y valores del destino.
+
+Para detectar ausencias se consultan todos los productos del destino, también cuando se
+usa `--product`. La lista de ausentes siempre tiene alcance global. Una coincidencia
+ambigua de referencia/EAN cuenta como posible presencia: no se declara que falta un
+producto que podría estar ya publicado. Las ausencias son resultados de comparación de
+identificadores; este informe no crea productos ni combinaciones.
+
+El libro incluye autofiltros, encabezado y dos columnas inmovilizados, precios y cantidades
+numéricos, y referencias/códigos como texto para conservar ceros iniciales. El texto no
+se convierte en fórmulas. La generación usa la biblioteca estándar, sin paquetes pip.
+`resumen.json` registra la ruta en `workbook` y las cantidades de filas y productos por
+pestaña en `sheets`. El libro se genera antes de aplicar y se actualiza con los resultados
+al finalizar una ejecución con `--apply`.
 
 `precio_mariadb` es el precio inicial congelado sin impuestos (o el precio actual previo si no se configura base congelada); `precio_para_prestashop` el propuesto;
 `precio_final_sin_iva` el resultado. El precio visible verificado por el motor incluye
@@ -86,7 +121,7 @@ El PUM se recalcula en cada ejecución, incluso cuando el precio de venta no cam
 
 `pum_fuente` explica la elección; las columnas `pum_contenido_erp`,
 `pum_unidad_erp`, `pum_contenido_erp_convertido`, `pum_contenido_nombre` y
-`pum_unidad_nombre` permiten revisarla. La discrepancia persiste en el CSV completo
+`pum_unidad_nombre` permiten revisarla. La discrepancia persiste en el libro completo
 incluso después de sincronizar. Los productos excluidos o bloqueados conservan su PUM.
 
 Se interpretan gramos, kilos, mililitros, litros y cantidades explícitas de tabletas,
@@ -142,7 +177,7 @@ a otro registro por EAN, se exige revisar la sustitución: un mismo EAN puede es
 asignado o representar otra cantidad/aroma. No se escoge automáticamente otro producto.
 Excluir una fuente ERP **no desactiva ni borra** su ficha de PrestaShop.
 
-Estados del CSV: `SIN_CAMBIOS`, `PROPUESTO`, `APLICADO`, `EXCLUIDO_ERP`,
+Estados de la auditoría: `SIN_CAMBIOS`, `PROPUESTO`, `APLICADO`, `EXCLUIDO_ERP`,
 `INACTIVO_PRESTASHOP`, `PENDIENTE_PRESENTACIONES`, `BLOQUEADO`, `ERROR`.
 `EXCLUIDO_ERP` incluye estado y motivo; no significa necesariamente baja definitiva del
 fabricante. Cada ejecución vuelve a consultar la vigencia y puede admitir una fuente
@@ -159,7 +194,7 @@ económicamente equivalentes se consolidan.
 |---|---|---|
 | Cambia precio o factor de una presentación existente | Actualiza base e impactos | No hace falta ejecutarlo |
 | Aparece una alternativa nueva | `PENDIENTE_PRESENTACIONES`; conserva precios de la ficha | Repetir `corregir.py --apply`; crea lo que falta |
-| Se inactiva una presentación, deja de ser vendible o ManejPrese pasa a N | Conserva en CSV las combinaciones web y marca discrepancia; no actualiza parcialmente la ficha | Señala retiro pendiente; no elimina automáticamente |
+| Se inactiva una presentación, deja de ser vendible o ManejPrese pasa a N | Conserva en el informe las combinaciones web y marca discrepancia; no actualiza parcialmente la ficha | Señala retiro pendiente; no elimina automáticamente |
 | Se inactiva el producto ERP completo | `EXCLUIDO_ERP`, conserva toda la ficha y su precio | No crea nuevas combinaciones usando esa fuente |
 | Se reactiva el producto ERP | Revalida MATCH y estructura en la siguiente ejecución | Se usa si faltan combinaciones |
 
@@ -190,9 +225,9 @@ el catálogo. Una auditoría nueva siempre consulta los precios actuales.
 
 Salida 0: ejecución resuelta o salto por bloqueo; 2: quedan bloqueos, errores o estructura
 pendiente, aunque otros productos se hayan actualizado correctamente; 1: fallo general.
-`reports/cron.log` conserva la salida del programador. Los CSV se conservan sin borrado
-automático; un CSV completo ronda 2,8 MB (unos 400 MB/día con 144 ejecuciones). Archivar
-informes antiguos forma parte del mantenimiento del servidor.
+`reports/cron.log` conserva la salida del programador. Los libros e informes de cambios
+se conservan sin borrado automático. Archivar informes antiguos forma parte del
+mantenimiento del servidor; su tamaño depende del catálogo y de las filas ERP ausentes.
 
 ## Nueva máquina y producción
 
