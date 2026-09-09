@@ -44,6 +44,55 @@ class Workbook(unittest.TestCase):
         sheets=book.classify([self.row(7159,'026074')],e,s,c,[])
         self.assertEqual(len(sheets[book.SIMPLE_SHEET]),1)
 
+    def variant_family(self):
+        ps = product([dict(combo(i, label, ''), default_on=int(i == 71))
+                      for i, label in ((70, 'Grande'), (71, 'Parejo'), (72, 'Pequeño'))])
+        for c in ps['combinations']:
+            c['attributes'][0]['group_name'] = 'Tamaño'
+        base = dict(self.row(7159, '026074'), presentacion_id='BASE', id_combinacion=0,
+                    presentacion='KL', unidad_erp='KL', inventario_mariadb='219',
+                    precio_visible_base_227='8600', precio_visible_229='', diferencia_precio_visible='')
+        family = [base] + [dict(base, presentacion_id='EXISTENTE:'+str(c['id']),
+                    id_combinacion=c['id'], presentacion=c['attributes'][0]['label'],
+                    inventario_mariadb='73', precio_visible_229='8600', diferencia_precio_visible='0',
+                    url_revision='product/'+str(c['id'])) for c in ps['combinations']]
+        return ps, family
+
+    def test_size_summary_keeps_product_stock_and_default_visible_price(self):
+        ps, family = self.variant_family()
+        original = copy.deepcopy((ps, family))
+        result = book.compact_variants(family, ps, ps)
+        self.assertEqual(len(result), 1)
+        row = result[0]
+        self.assertEqual((row['presentacion'], row['id_combinacion'], row['url_revision']), ('KL', 71, 'product/71'))
+        self.assertEqual((row['inventario_mariadb'], row['precio_visible_229'], row['diferencia_precio_visible']), ('219', '8600', '0'))
+        self.assertEqual(row['presentacion_en_prestashop'], 'SI')
+        self.assertEqual((ps, family), original)
+
+    def test_sales_presentations_keep_detail_even_when_prices_equal(self):
+        ps, family = self.variant_family()
+        for c in ps['combinations']:
+            c['attributes'][0]['group_name'] = 'Presentación'
+        self.assertEqual(len(book.compact_variants(family, ps)), 4)
+
+    def test_variant_discount_price_impact_or_pum_discrepancy_keeps_detail(self):
+        for case in ('discount', 'impact', 'baseline', 'pum', 'verification'):
+            with self.subTest(case=case):
+                ps, family = self.variant_family(); initial = copy.deepcopy(ps)
+                if case == 'discount': family[2]['precio_visible_229'] = '8000'
+                if case == 'impact': ps['combinations'][1]['price'] = '100'
+                if case == 'baseline': initial['combinations'][1]['price'] = '100'
+                if case == 'pum': ps['combinations'][1]['unit_price_impact'] = '1'
+                if case == 'verification':
+                    for row in family: row['verificacion_precio_visible_tecnica'] = 'DIFIERE_REVISAR'
+                self.assertEqual(len(book.compact_variants(family, ps, initial)), 4)
+
+    def test_unmatched_alternative_or_incomplete_variant_reading_keeps_detail(self):
+        ps, family = self.variant_family()
+        self.assertEqual(len(book.compact_variants(family[:-1], ps)), 3)
+        family.append(dict(family[0], presentacion_id='ERP_ALTERNATIVA'))
+        self.assertEqual(len(book.compact_variants(family, ps)), 5)
+
     def test_inactive_and_ambiguous_identity_candidates_are_not_claimed_absent(self):
         s,e,c=test_prices.Prices().ready();old=e['products'][0];old['state']='I'
         e['products'].append(dict(old,erp_id='other',reference='other',state='A'))

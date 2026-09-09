@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import ipaddress
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,6 +25,17 @@ def test_host(settings):
     if not any(address in ipaddress.IPv4Network(n) for n in networks) or value == '192.168.0.231':
         raise ValueError('Se requiere una IP LAN de pruebas distinta del ERP')
     return str(address)
+
+
+def frozen_host(settings):
+    """Explicit environment override, shared settings, then legacy configuration."""
+    if 'SERVIDOR_CONGELADO' not in os.environ and not any(k in settings for k in ('SERVIDOR_CONGELADO', 'baseline_host')):
+        return None
+    value = os.environ.get('SERVIDOR_CONGELADO', settings.get('SERVIDOR_CONGELADO', settings.get('baseline_host')))
+    if not isinstance(value, str):
+        raise ValueError('SERVIDOR_CONGELADO debe ser una IPv4 LAN en texto')
+    # Same LAN restriction as the test adapters. Empty/malformed values fail closed.
+    return test_host({'test_host': value})
 
 
 def target(settings):
@@ -105,7 +117,7 @@ def invoke(command, payload, timeout=180):
 
 
 def bridge(settings, command='snapshot', **kwargs):
-    payload = dict(prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], test_host=test_host(settings))
+    payload = dict(prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], test_host=test_host(settings), SERVIDOR_CONGELADO=frozen_host(settings))
     payload.update(kwargs)
     return invoke(['php', str(ROOT / 'bridge.php'), command], payload)
 

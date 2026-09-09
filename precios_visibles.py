@@ -59,9 +59,10 @@ def format_verified(row, reading):
 
 
 def read(settings, catalog, plan=None, baseline=False):
-    host = base_congelada.HOST if baseline else sync.test_host(settings)
-    if baseline and settings.get('baseline_host') != host:
-        raise ValueError('Origen congelado de precios no configurado')
+    frozen_host = sync.frozen_host(settings)
+    host = frozen_host if baseline else sync.test_host(settings)
+    if baseline and (not host or host == sync.test_host(settings)):
+        raise ValueError('Origen congelado de precios no configurado o igual al destino')
     operations = {o['id']: o for o in (plan or {}).get('operations', [])}
     products = []
     for p in catalog['products']:
@@ -72,7 +73,7 @@ def read(settings, catalog, plan=None, baseline=False):
             impacts.update({str(c['combination_id']):c['impact'] for c in op.get('combination_prices', [])})
             row['proposal'] = dict(base_price=op['base_price'], impacts=impacts)
         products.append(row)
-    payload = dict(test_host=host, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], products=products, stock_visibility=not baseline)
+    payload = dict(test_host=host, SERVIDOR_CONGELADO=frozen_host, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], products=products, stock_visibility=not baseline)
     # Neither native writer nor apply/verify functions are sent to the frozen host.
     source = (sync.ROOT/'bridge.php').read_text().split('function verifyProduct(', 1)[0]
     if not baseline:

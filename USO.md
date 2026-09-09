@@ -15,14 +15,49 @@ python3 sincronizar.py --apply --product 4480
 
 ## Punto de partida congelado en desarrollo
 
-La configuración actual contiene `baseline_host: 192.168.0.227`. En cada corrida se
-consulta por SSH `root@192.168.0.227` el snapshot completo de MariaDB: productos,
+En `settings.json` se define el origen de comparación:
+
+```json
+"SERVIDOR_CONGELADO": "192.168.0.227"
+```
+
+Para una nueva copia congelada basta cambiar esa IP. También se puede sobrescribir
+para una ejecución mediante una variable de entorno, sin editar el archivo:
+
+```bash
+SERVIDOR_CONGELADO=192.168.0.227 python3 sincronizar.py --apply
+```
+
+La prioridad es variable de entorno `SERVIDOR_CONGELADO`, luego la propiedad del mismo
+nombre en `settings.json`; `baseline_host` se acepta únicamente por compatibilidad
+con configuraciones antiguas. No es necesario cambiar el `.env` de credenciales ERP.
+El cron utilizará la configuración del archivo salvo que se defina esa variable en
+su entorno. Ambos programas comparten el archivo y la misma protección de escritura.
+Un valor explícito vacío o inválido produce error; nunca cambia silenciosamente al destino.
+
+En cada corrida se consulta por SSH `root@SERVIDOR_CONGELADO` (actualmente
+`root@192.168.0.227`) el snapshot completo de MariaDB: productos,
 nombres, referencias, códigos, precios, PUM, estado, existencias, combinaciones,
 atributos y precios específicos. Se reutilizan exactamente las consultas del lector
 local. El puerto MariaDB respondió, pero las credenciales locales no permitieron acceso
 remoto; se utiliza SSH sin cambiar permisos de la base ni instalar archivos remotos.
 Si falla esta lectura, la ejecución se detiene antes de escribir. No usa el destino ni
 un CSV anterior como sustituto. Se exige clave SSH disponible para el usuario del cron.
+La lectura de precios visibles también usa ese servidor. Se comprueba que la respuesta
+proceda del origen solicitado y que sea distinto del destino. Los escritores de precios,
+el preparador de combinaciones y las reparaciones del tema rechazan escribir sobre el
+servidor congelado configurado. `base_host` en el libro y `servidor_congelado` en
+`resumen.json` registran el origen efectivo, incluida una sobrescritura de entorno.
+Por compatibilidad, las columnas `precio_visible_base_227` y `precio_visible_229`
+conservan sus nombres históricos: su significado es origen congelado y destino configurado;
+las IP efectivas se encuentran en `base_host` y en el resumen.
+
+Esta variable prepara el cambio de origen; no habilita por sí sola producción.
+Los adaptadores siguen limitados a IPv4 LAN, la base `mercaboy_pruebas` y la raíz
+`/var/www/html`. El nuevo origen debe ser una copia accesible por SSH y con ese formato.
+Las rutas, base y permisos de cPanel se adaptarán y comprobarán en la preparación
+específica de producción. No se ha accedido a `www.mercaboy.com`.
+
 
 La copia `.229` sigue siendo el destino. Su lectura actual sirve para localizar las
 combinaciones, detectar qué importes requieren una escritura y comprobar que el producto
@@ -114,6 +149,19 @@ van después de los válidos dentro de ese grupo de diferencia cero. Las fichas 
 distintas de cero conservan su orden anterior. Las filas de cada producto permanecen juntas,
 con `BASE` primero y las alternativas a continuación. Las fichas sin comparación van al final.
 Se mantienen los demás campos de auditoría. No se publican existencias ERP.
+
+Los atributos que se mantienen exclusivamente en PrestaShop (por ejemplo Tamaño:
+Grande/Parejo/Pequeño) se resumen en **una fila por producto** cuando sus impactos
+son cero en origen y destino y sus precios visibles y datos de PUM coinciden.
+La columna `presentacion` muestra la unidad ERP, por ejemplo `KL`; la fila usa el
+precio visible de la combinación predeterminada y conserva el inventario del producto.
+`situacion_presentacion=ATRIBUTOS_SOLO_PRESTASHOP_SIN_IMPACTO_PRECIO` identifica el
+resumen. Las opciones siguen funcionando en la tienda. Las presentaciones de venta
+(Caja/Blíster, etc.) conservan sus filas, incluso cuando tengan el mismo precio.
+Variantes con importes distintos o discrepancias conservan el detalle para revisión.
+Esta compactación solo afecta al libro: el plan, la verificación de cada combinación
+y el CSV de cambios confirmados conservan su detalle original.
+
 
 Los precios visibles incluyen impuestos y descuentos según el motor nativo, para un
 visitante sin sesión, cantidad 1, país y moneda predeterminados. En fichas inactivas son

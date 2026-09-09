@@ -1,18 +1,19 @@
-"""Datos iniciales completos de .227, leídos por SSH en cada ejecución."""
+"""Datos iniciales completos del servidor congelado configurable, leídos por SSH."""
 import base64
 import json
 import subprocess
 import sync
 
-HOST = '192.168.0.227'
+HOST = '192.168.0.227'  # Compatibility constant for old evidence/tests; reads use settings.
 
 
 def read(settings, ids=None):
-    if settings.get('baseline_host') != HOST or sync.test_host(settings) == HOST:
-        raise ValueError('BASE_CONGELADA: .227 debe ser origen, nunca destino')
-    # Solo las funciones de lectura compartidas; no se envía el escritor a .227.
+    host = sync.frozen_host(settings)
+    if not host or sync.test_host(settings) == host:
+        raise ValueError('BASE_CONGELADA: el servidor congelado debe ser origen, nunca destino')
+    # Solo las funciones de lectura compartidas; no se envía el escritor al servidor congelado.
     reader = (sync.ROOT / 'bridge.php').read_text().split('function boot(', 1)[0]
-    payload = dict(test_host=HOST, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], ids=ids or [])
+    payload = dict(test_host=host, SERVIDOR_CONGELADO=host, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], ids=ids or [])
     encoded = base64.b64encode(sync.canonical(payload)).decode('ascii')
     code = reader + "\ntry { $request=json_decode(base64_decode('" + encoded + "'),true);" + '''
         $parameters=localParameters($request); $db=connection($request,$parameters);
@@ -21,14 +22,14 @@ def read(settings, ids=None):
 '''
     try:
         result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=10',
-                                 '-o', 'ServerAliveCountMax=2', 'root@'+HOST, 'php'], input=code.encode(),
+                                 '-o', 'ServerAliveCountMax=2', 'root@'+host, 'php'], input=code.encode(),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
         if result.returncode:
-            raise RuntimeError('BASE_CONGELADA_NO_DISPONIBLE: SSH/lectura .227')
+            raise RuntimeError('BASE_CONGELADA_NO_DISPONIBLE: SSH/lectura '+host)
         value = json.loads(result.stdout.decode('utf-8'))
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise RuntimeError('BASE_CONGELADA_NO_DISPONIBLE: no se sustituye por datos del destino') from error
-    if value.get('target') != HOST+'/mercaboy_pruebas/1' or not isinstance(value.get('products'), list):
+    if value.get('target') != host+'/mercaboy_pruebas/1' or not isinstance(value.get('products'), list):
         raise ValueError('BASE_CONGELADA_INVALIDA: origen o formato inesperado')
     if len({p['id'] for p in value['products']}) != len(value['products']):
         raise ValueError('BASE_CONGELADA_INVALIDA: productos duplicados')
@@ -56,7 +57,7 @@ def report(rows, initial, destination, changes):
         pid, cid = row['id_producto'], row['id_combinacion']
         previous = old.get(pid)
         current_combo = next((c for c in live[pid]['combinations'] if c['id'] == cid), None)
-        row.update(base_host=HOST, base_huella=fingerprint, nombre_destino_actual=live[pid]['name'],
+        row.update(base_host=initial['target'].split('/', 1)[0], base_huella=fingerprint, nombre_destino_actual=live[pid]['name'],
                    referencia_destino_actual=live[pid]['reference'], referencia_combinacion_destino=row['referencia_combinacion'],
                    activo_destino_antes=live[pid]['active'], inventario_destino_antes=row['inventario_mariadb'],
                    precio_destino_antes=row['precio_mariadb'], precio_base_destino_antes=row['precio_base_anterior'],

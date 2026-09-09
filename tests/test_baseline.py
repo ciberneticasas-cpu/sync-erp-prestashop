@@ -1,6 +1,9 @@
 from fixtures import *
 from unittest.mock import patch
 import subprocess
+import json
+import os
+import precios_visibles
 import base_congelada
 import sincronizar
 import pum
@@ -95,3 +98,62 @@ class Baseline(unittest.TestCase):
     def test_configured_baseline_requires_initial_snapshot(self):
         live,e,c=test_prices.Prices().ready();c['baseline_host']=base_congelada.HOST
         with self.assertRaisesRegex(ValueError,'FALTA_LECTURA_BASE'):sync.build_plan(live,e,c)
+
+
+class ConfigurableBaseline(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+        self.settings = dict(test_host='192.168.0.229', SERVIDOR_CONGELADO='10.5.0.227',
+                             prestashop_root='/var/www/html', env_file='/unused.env')
+
+    def test_canonical_setting_environment_precedence_and_legacy(self):
+        self.assertEqual(sync.frozen_host(self.settings), '10.5.0.227')
+        self.assertEqual(sync.frozen_host({'baseline_host':'192.168.0.226'}), '192.168.0.226')
+        with patch.dict(os.environ, {'SERVIDOR_CONGELADO':'192.168.0.225'}):
+            self.assertEqual(sync.frozen_host(self.settings), '192.168.0.225')
+        for value in (None, False, 3232235751, '', 'root@10.5.0.227', '10.5.0.227;id', '192.168.0.231', '8.8.8.8'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                sync.frozen_host(dict(self.settings, SERVIDOR_CONGELADO=value))
+
+    def test_snapshot_and_native_prices_read_the_configured_ssh_host(self):
+        source = dict(target='10.5.0.227/mercaboy_pruebas/1', products=[])
+        result = subprocess.CompletedProcess([], 0, stdout=sync.canonical(source), stderr=b'')
+        with patch('base_congelada.subprocess.run', return_value=result) as run:
+            self.assertEqual(base_congelada.read(self.settings), source)
+            self.assertIn('root@10.5.0.227', run.call_args[0][0])
+            self.assertNotIn(b'function applyPrices', run.call_args[1]['input'])
+        prices = dict(host='10.5.0.227', prices=[], currency=dict(iso_code='COP', precision=0, round_mode=2))
+        result.stdout = sync.canonical(prices)
+        with patch('precios_visibles.subprocess.run', return_value=result) as run:
+            self.assertEqual(precios_visibles.read(self.settings, dict(products=[]), baseline=True), prices)
+            self.assertIn('root@10.5.0.227', run.call_args[0][0])
+            self.assertNotIn(b'function applyPrices', run.call_args[1]['input'])
+
+    def test_wrong_or_unavailable_host_never_falls_back(self):
+        wrong = dict(target='192.168.0.227/mercaboy_pruebas/1', products=[])
+        result = subprocess.CompletedProcess([], 0, stdout=sync.canonical(wrong), stderr=b'')
+        with patch('base_congelada.subprocess.run', return_value=result):
+            with self.assertRaisesRegex(ValueError, 'origen'):
+                base_congelada.read(self.settings)
+        same = dict(self.settings, test_host='10.5.0.227')
+        with self.assertRaisesRegex(ValueError, 'nunca destino'):
+            base_congelada.read(same)
+        with self.assertRaisesRegex(ValueError, 'igual al destino'):
+            precios_visibles.read(same, dict(products=[]), baseline=True)
+
+    def test_report_origin_uses_snapshot_and_canonical_setting_requires_it(self):
+        live, e, c = Baseline().ready()
+        live['baseline']['target'] = '10.5.0.227/mercaboy_pruebas/1'
+        plan = sync.build_plan(live, e, c)
+        rows = sincronizar.report_rows(live, e, plan, c)
+        self.assertTrue(all(r['base_host'] == '10.5.0.227' for r in rows))
+        del live['baseline']
+        c.update(SERVIDOR_CONGELADO='10.5.0.227')
+        with self.assertRaisesRegex(ValueError, 'FALTA_LECTURA_BASE'):
+            sync.build_plan(live, e, c)
+
+    def test_bridge_payload_carries_resolved_source(self):
+        with patch('sync.invoke', return_value={}) as invoke:
+            sync.bridge(self.settings, ids=[])
+            self.assertEqual(invoke.call_args[0][1]['SERVIDOR_CONGELADO'], '10.5.0.227')

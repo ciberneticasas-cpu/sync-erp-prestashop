@@ -38,7 +38,7 @@ def apply(plan, settings, output):
         return state
     initial_errors = len(state['errors'])
     payload = dict(prestashop_root=settings['prestashop_root'], env_file=settings['env_file'],
-                   test_host=sync.test_host(settings), authorization='CLI_APPLY_TEST_ONLY', operations=operations)
+                   test_host=sync.test_host(settings), SERVIDOR_CONGELADO=sync.frozen_host(settings), authorization='CLI_APPLY_TEST_ONLY', operations=operations)
     # Temporary input avoids pipe deadlock on large plans. No credentials in payload.
     with tempfile.TemporaryFile() as source, tempfile.TemporaryFile() as errors, (output / 'recibos.jsonl').open('w') as receipts:
         source.write(sync.canonical(payload)); source.seek(0)

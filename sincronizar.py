@@ -210,7 +210,7 @@ def run(args, settings):
     stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     output = Path(args.output) if args.output else sync.ROOT/'reports'/('sincronizacion_'+stamp)
     output.mkdir(parents=True, exist_ok=False)
-    initial = base_congelada.read(settings) if settings.get('baseline_host') else None
+    initial = base_congelada.read(settings) if sync.frozen_host(settings) else None
     catalog = sync.bridge(settings, ids=[])
     snapshot = dict(catalog)
     if args.product:
@@ -248,7 +248,7 @@ def run(args, settings):
     counts = {state:len({r['id_producto'] for r in rows if r['resultado']==state}) for state in {r['resultado'] for r in rows}}
     visible_counts = dict(collections.Counter(r['verificacion_precio_visible'] for r in audit_rows))
     technical_counts = dict(collections.Counter(r['verificacion_precio_visible_tecnica'] for r in audit_rows))
-    summary = dict(visible_prices=visible_counts, visible_prices_technical=technical_counts, currency=precios_visibles.currency(visible_before), target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, apply=args.apply, products=len(snapshot['products']), states=counts,
+    summary = dict(visible_prices=visible_counts, visible_prices_technical=technical_counts, currency=precios_visibles.currency(visible_before), target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, servidor_congelado=sync.frozen_host(settings), apply=args.apply, products=len(snapshot['products']), states=counts,
                    workbook=str(workbook_path), sheets=sheet_counts, changes_csv=str(changes_path), changed_rows=len(changes),
                    duration_seconds=round(time.monotonic()-started,3),
                    all_resolved=not visible_counts.get('DIFIERE_REVISAR') and not technical_counts.get('DIFIERE_REVISAR') and not any(counts.get(k,0) for k in ['BLOQUEADO','ERROR','PROPUESTO','PENDIENTE_PRESENTACIONES']))

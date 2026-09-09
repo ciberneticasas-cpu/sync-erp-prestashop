@@ -19,7 +19,22 @@ function envValues(string $path): array {
     }
     return $values;
 }
+function configureFrozenHost(array $request): void {
+    $env = getenv('SERVIDOR_CONGELADO');
+    $host = $env !== false ? $env : ($request['SERVIDOR_CONGELADO'] ?? $request['baseline_host'] ?? '192.168.0.227');
+    demand(is_string($host) && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4), 'SERVIDOR_CONGELADO: IPv4 invalida');
+    $parts = array_map('intval', explode('.', $host));
+    $private = $parts[0] === 10 || ($parts[0] === 172 && $parts[1] >= 16 && $parts[1] <= 31) || ($parts[0] === 192 && $parts[1] === 168);
+    demand($private && $host !== '192.168.0.231', 'SERVIDOR_CONGELADO: se requiere IP LAN distinta del ERP');
+    if (defined('SERVIDOR_CONGELADO')) { demand(SERVIDOR_CONGELADO === $host, 'No se puede cambiar origen dentro del proceso'); }
+    else { define('SERVIDOR_CONGELADO', $host); }
+}
+function demandWritableHost(): void {
+    $frozen = defined('SERVIDOR_CONGELADO') ? SERVIDOR_CONGELADO : '192.168.0.227';
+    demand(!defined('TEST_HOST') || TEST_HOST !== $frozen, 'La base congelada ' . $frozen . ' no admite escrituras');
+}
 function configureTestHost(array $request): void {
+    configureFrozenHost($request);
     $host = $request['test_host'] ?? '';
     demand(is_string($host) && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4), 'IP de pruebas invalida');
     $parts = array_map('intval', explode('.', $host));
@@ -187,7 +202,7 @@ function verifyProduct(array $operation): array {
 }
 
 function applyPrices(array $operation): array {
-    demand(!defined('TEST_HOST') || TEST_HOST !== '192.168.0.227', 'La base congelada .227 no admite escrituras');
+    demandWritableHost();
     demand(!empty($operation['prices_only']) && empty($operation['stage_disabled']) && empty($operation['preview_only']) && empty($operation['new_name']), 'Solo cambios de precio permitidos');
     $db = Db::getInstance(); demand($db->execute('START TRANSACTION'), 'No inicio transaccion');
     try {

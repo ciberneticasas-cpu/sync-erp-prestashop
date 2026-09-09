@@ -74,6 +74,59 @@ def factor_review_reason(value):
     return 'Factor vacío o inválido: revisar'
 
 
+def compact_variants(family, product, initial=None):
+    """One workbook row for PS-only attributes with identical price/PUM evidence.
+
+    Raw audit rows, the price plan and the confirmed-change CSV remain untouched.
+    Sales presentations and any differing variant evidence remain individually visible.
+    """
+    combinations = product.get('combinations', [])
+    if not combinations or len(family) < 2:
+        return family
+    for source in (product, initial or product):
+        for combo in source.get('combinations', []):
+            attrs = combo.get('attributes', [])
+            if not attrs or any(sync.norm(a['group_name']) == 'presentacion' for a in attrs):
+                return family
+            if any(sync.dec(combo.get(f) or 0) != 0 for f in ('price', 'unit_price_impact')):
+                return family
+    by_id = {r.get('id_combinacion'): r for r in family if r.get('id_combinacion')}
+    if set(by_id) != {c['id'] for c in combinations}:
+        return family
+    variants = list(by_id.values())
+    # Include technical amounts: equal rounded totals must not conceal a discrepancy.
+    same_fields = precios_visibles.FIELDS + [
+        'factor_conversion_precio', 'resultado', 'motivo', 'pum_estado',
+        'pum_unidad_anterior', 'pum_precio_unitario_anterior', 'pum_ratio_anterior',
+        'pum_unidad_propuesta', 'pum_precio_unitario_propuesto', 'pum_ratio_propuesto',
+        'pum_precio_unitario', 'pum_ratio_final']
+    if any(len({str(r.get(f, '')) for r in variants}) > 1 for f in same_fields):
+        return family
+    if any('DIFIERE' in str(r.get(f, '')) for r in variants
+           for f in ('verificacion_precio_visible', 'verificacion_precio_visible_tecnica')):
+        return family
+    default = next((c for c in combinations if str(c.get('default_on')) == '1'), combinations[0])
+    selected = by_id[default['id']]
+    base = next((r for r in family if r.get('presentacion_id') == 'BASE'), None)
+    # Never discard an unmatched ERP alternative or a separate review row.
+    if len(family) != len(variants) + (1 if base else 0):
+        return family
+    row = dict(base or selected)
+    row.update({f: selected[f] for f in precios_visibles.FIELDS if f in selected})
+    for f in ('id_combinacion', 'referencia_combinacion', 'url_revision',
+              'precio_visible_verificado', 'pum_precio_visible_verificado'):
+        if f in selected:
+            row[f] = selected[f]
+    row.update(presentacion_id='BASE', presentacion=row.get('unidad_erp') or 'Unidad',
+               presentacion_en_prestashop='SI', cantidad_presentaciones_web=1,
+               situacion_presentacion='ATRIBUTOS_SOLO_PRESTASHOP_SIN_IMPACTO_PRECIO')
+    if base is None:
+        # Variant stock is not the product stock; do not sum or replicate it.
+        row['inventario_mariadb'] = (initial or product).get('quantity', '')
+        row['final_sync'] = row['inventario_mariadb']
+    return [row]
+
+
 def classify(rows, erp, catalog, settings, fields, initial_catalog=None, stock_visibility=None):
     prepared = match_erp.index(erp, eligible_only=False)
     products = prepared[0]
@@ -101,6 +154,8 @@ def classify(rows, erp, catalog, settings, fields, initial_catalog=None, stock_v
                 # Invalid economics must not hide that alternative ERP records exist.
                 multiple = multiple or bool(records[e['erp_id']])
         identity = initial.get(pid)
+        if not multiple:
+            family = compact_variants(family, web.get(pid, {}), identity)
         absent = e is None and identity is not None and not erp_candidates(identity, settings, prepared)
         if absent and active == '1':
             name = PS_ACTIVE_ABSENT_ERP_SHEET

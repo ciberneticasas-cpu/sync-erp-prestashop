@@ -12,7 +12,7 @@ import copy
 def build_plan(snapshot, erp, settings):
     if snapshot['target'] != sync.target(settings) or erp['host'] != '192.168.0.231':
         raise ValueError('Destino protegido')
-    if settings.get('baseline_host') and 'baseline' not in snapshot:
+    if sync.frozen_host(settings) and 'baseline' not in snapshot:
         raise ValueError('FALTA_LECTURA_BASE_CONGELADA: ejecutar sincronizar.py')
     operations, rows, unchanged, pum_decisions = [], [], 0, {}
     prepared = match_erp.index(erp)
