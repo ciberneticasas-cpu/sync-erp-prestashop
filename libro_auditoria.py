@@ -179,7 +179,17 @@ def order_families(rows):
                     number = Decimal(str(value))
                     if number.is_finite(): differences.append(abs(number))
                 except InvalidOperation: pass
-        return (not bool(differences), -max(differences) if differences else Decimal(0), key)
+        maximum = max(differences) if differences else Decimal(0)
+        factor, missing_factor = Decimal(0), False
+        if differences and maximum == 0:
+            # Use the base presentation to order the whole product, without splitting it.
+            base = next((r for r in family if r.get('presentacion_id') == 'BASE'), family[0])
+            try:
+                factor = Decimal(str(base.get('factor_conversion_precio', '')).strip().replace(',', '.'))
+                if not factor.is_finite(): raise InvalidOperation
+            except InvalidOperation:
+                factor, missing_factor = Decimal(0), True
+        return (not bool(differences), -maximum, missing_factor, -factor, key)
     result = []
     for key, family in sorted(groups.items(), key=priority):
         result.extend(sorted(family, key=lambda r: (r.get('presentacion_id') != 'BASE', str(r.get('presentacion_id', '')), str(r.get('id_combinacion', '')))))

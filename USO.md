@@ -83,7 +83,11 @@ El orden inicial de columnas en todas las pestañas es:
   cambio durante la ejecución, que puede ser cero aunque haya diferencias con .227.
 
 Cada pestaña se ordena por la mayor diferencia absoluta de cada ficha, de mayor a menor;
-la diferencia conserva su signo en la celda. Las filas de cada producto permanecen juntas,
+la diferencia conserva su signo en la celda. Cuando la mayor diferencia conocida de una
+ficha es cero, se ordena por `factor_conversion_precio` de mayor a menor, usando el factor
+de su presentación BASE (o la primera fila si no hay BASE). Los factores vacíos o inválidos
+van después de los válidos dentro de ese grupo de diferencia cero. Las fichas con diferencias
+distintas de cero conservan su orden anterior. Las filas de cada producto permanecen juntas,
 con `BASE` primero y las alternativas a continuación. Las fichas sin comparación van al final.
 Se mantienen los demás campos de auditoría. No se publican existencias ERP.
 
