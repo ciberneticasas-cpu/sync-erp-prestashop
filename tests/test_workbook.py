@@ -9,6 +9,11 @@ import test_prices
 
 
 class Workbook(unittest.TestCase):
+    def setUp(self):
+        prices={'prices':[dict(id=7159,combination_id=cid,actual=50000,proposed=50000) for cid in (0,142,143)]}
+        reader=patch('precios_visibles.read',return_value=prices)
+        reader.start();self.addCleanup(reader.stop)
+
     def row(self, pid, erp, state='A', active='1'):
         return dict(id_producto=pid,erp_id=erp,estado_erp=state,activo_prestashop=active,factor_conversion_precio='1')
 

@@ -18,6 +18,7 @@ import sync
 import base_congelada
 import nombres
 import libro_auditoria
+import precios_visibles
 
 LEGACY_FIELDS = 'referencia,nombre_prestashop,nombre_corto_erp,factor_conversion_precio,inventario_erp,inventario_para_prestashop,inventario_mariadb,pendiente,final_sync,precio_mariadb,precio_sin_impuesto_erp,ivaid,precio_erp,precio_para_prestashop,pum_fuente,pum_unidad,pum_ratio,pum_precio_unitario,otras_listas_precios_erp,erp_host,accion,unidad_erp,unidad_mariadb_inferida'.split(',')
 EXTRA_FIELDS = 'id_producto,erp_id,criterio_match,observacion_match,nombre_erp,presentacion_id,presentacion,id_combinacion,referencia_combinacion,impacto_precio,nombre_destino,resultado,motivo,precio_final_sin_iva,precio_visible_verificado,url_revision,stock_se_actualiza,estado_erp,marcas_vigencia_erp,elegible_precio,motivo_exclusion,activo_prestashop,precio_base_anterior,precio_base_nuevo,impacto_anterior,presentacion_estado_erp,presentacion_venta_erp,presentacion_en_prestashop,situacion_presentacion,cantidad_presentaciones_erp,cantidad_presentaciones_web,maneja_presentaciones_erp,pum_ratio_final'.split(',')
@@ -216,30 +217,38 @@ def run(args, settings):
         snapshot['baseline'] = initial
     erp = sync.erp_read(settings, (initial or snapshot)['products'])
     plan = sync.build_plan(snapshot, erp, settings)
+    visible_before = precios_visibles.read(settings, snapshot, plan)
+    selected_ids = {p['id'] for p in snapshot['products']}
+    visible_initial = precios_visibles.read(settings, dict(products=[p for p in initial['products'] if p['id'] in selected_ids]), baseline=True) if initial is not None else visible_before
     workbook_path = output/('stock_auditoria_'+stamp+'.xlsx')
     fields = LEGACY_FIELDS + EXTRA_FIELDS + libro_auditoria.FIELDS
-    sheets = libro_auditoria.classify(report_rows(snapshot, erp, plan, settings), erp, catalog, settings, fields, initial_catalog=initial)
+    audit_rows = precios_visibles.enrich(report_rows(snapshot, erp, plan, settings), initial, catalog, visible_before, visible_initial)
+    sheets = libro_auditoria.classify(audit_rows, erp, catalog, settings, fields, initial_catalog=initial)
     libro_auditoria.validate_price_plan(plan, sheets)
     sheet_counts = libro_auditoria.write(workbook_path, sheets, fields)
     print('Libro: '+str(workbook_path), flush=True)
     # Large raw ERP evidence is optional for a job running 144 times/day.
     if args.evidence:
-        for name,value in [('snapshot',snapshot),('catalog',catalog),('erp',erp),('plan',plan)]: sync.write_json(output/(name+'.json'),value)
+        for name,value in [('snapshot',snapshot),('catalog',catalog),('erp',erp),('plan',plan),('precios_visibles_antes',visible_before),('precios_visibles_base',visible_initial)]: sync.write_json(output/(name+'.json'),value)
     changes_path = output/('cambios_precios_'+stamp+'.csv')
     write_csv(changes_path, [])
     journal = aplicar_precios.apply(plan, settings, output) if args.apply else None
     rows = report_rows(snapshot, erp, plan, settings, journal)
     if args.apply:
-        sheets = libro_auditoria.classify(rows, erp, catalog, settings, fields, initial_catalog=initial)
+        visible_after = precios_visibles.read(settings, snapshot)
+        sync.write_json(output/'precios_visibles_despues.json', visible_after)
+        audit_rows = precios_visibles.enrich([dict(r) for r in rows], initial, catalog, visible_before, visible_initial, visible_after)
+        sheets = libro_auditoria.classify(audit_rows, erp, catalog, settings, fields, initial_catalog=initial)
         sheet_counts = libro_auditoria.write(workbook_path, sheets, fields)
     changes_path = output/('cambios_precios_'+stamp+'.csv')
     changes = price_changes(rows)
     write_csv(changes_path, changes)
     counts = {state:len({r['id_producto'] for r in rows if r['resultado']==state}) for state in {r['resultado'] for r in rows}}
-    summary = dict(target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, apply=args.apply, products=len(snapshot['products']), states=counts,
+    visible_counts = dict(collections.Counter(r['verificacion_precio_visible'] for r in audit_rows))
+    summary = dict(visible_prices=visible_counts, target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, apply=args.apply, products=len(snapshot['products']), states=counts,
                    workbook=str(workbook_path), sheets=sheet_counts, changes_csv=str(changes_path), changed_rows=len(changes),
                    duration_seconds=round(time.monotonic()-started,3),
-                   all_resolved=not any(counts.get(k,0) for k in ['BLOQUEADO','ERROR','PROPUESTO','PENDIENTE_PRESENTACIONES']))
+                   all_resolved=not visible_counts.get('DIFIERE_REVISAR') and not any(counts.get(k,0) for k in ['BLOQUEADO','ERROR','PROPUESTO','PENDIENTE_PRESENTACIONES']))
     sync.write_json(output/'resumen.json',summary)
     print(json.dumps(summary,ensure_ascii=False,indent=2))
     return 2 if args.apply and not summary['all_resolved'] else 0

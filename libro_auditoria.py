@@ -8,6 +8,7 @@ import zipfile
 import match_erp
 import sync
 import vigencia
+import precios_visibles
 
 FACTOR_SHEET = 'Activos - factor no estándar'
 SIMPLE_SHEET = 'Activos ambos - simples'
@@ -32,6 +33,10 @@ NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 PACKAGE = 'http://schemas.openxmlformats.org/package/2006/relationships'
 NUMERIC = set('factor_conversion_precio,inventario_erp,inventario_para_prestashop,inventario_mariadb,final_sync,precio_mariadb,precio_sin_impuesto_erp,ivaid,precio_erp,precio_para_prestashop,pum_ratio,pum_precio_unitario,impacto_precio,precio_final_sin_iva,precio_visible_verificado,precio_base_anterior,precio_base_nuevo,impacto_anterior,pum_ratio_final,pum_ratio_anterior,pum_ratio_propuesto,pum_precio_unitario_anterior,pum_precio_unitario_propuesto,pum_precio_visible_verificado,pum_contenido_erp,pum_contenido_erp_convertido,pum_contenido_nombre,pum_contenido_nombre_convertido,pum_factor_presentacion_nombre,cantidad_presentaciones_erp,cantidad_presentaciones_web,cantidad_presentaciones_iniciales,inventario_producto_inicial,pum_precio_producto_inicial,pum_ratio_producto_inicial,inventario_destino_antes,precio_destino_antes,precio_base_destino_antes,impacto_destino_antes,pum_precio_unitario_destino_antes,pum_ratio_destino_antes'.split(','))
+
+FIELDS += precios_visibles.FIELDS
+NUMERIC.update(precios_visibles.NUMERIC)
+LEADING_FIELDS = ['referencia', 'nombre_prestashop', 'nombre_corto_erp', 'factor_conversion_precio', 'presentacion', 'precio_visible_base_227', 'precio_visible_229', 'diferencia_precio_visible']
 
 
 def erp_candidates(ps, settings, prepared):
@@ -144,7 +149,29 @@ def classify(rows, erp, catalog, settings, fields, initial_catalog=None):
             pass
         enrich(row, e)
         sheets[name].append(row)
-    return sheets
+    return collections.OrderedDict((name, order_families(values)) for name, values in sheets.items())
+
+
+def order_families(rows):
+    groups = collections.OrderedDict()
+    for row in rows:
+        key = ('PS', str(row['id_producto'])) if row.get('id_producto') else ('ERP', str(row.get('erp_id', '')))
+        groups.setdefault(key, []).append(row)
+    def priority(item):
+        key, family = item
+        differences = []
+        for row in family:
+            value = row.get('diferencia_precio_visible')
+            if value is not None and value != '':
+                try:
+                    number = Decimal(str(value))
+                    if number.is_finite(): differences.append(abs(number))
+                except InvalidOperation: pass
+        return (not bool(differences), -max(differences) if differences else Decimal(0), key)
+    result = []
+    for key, family in sorted(groups.items(), key=priority):
+        result.extend(sorted(family, key=lambda r: (r.get('presentacion_id') != 'BASE', str(r.get('presentacion_id', '')), str(r.get('id_combinacion', '')))))
+    return result
 
 
 def validate_price_plan(plan, sheets):
@@ -220,7 +247,7 @@ def write(path, sheets, fields):
             archive.writestr('xl/styles.xml', STYLES)
             types = [('xl/workbook.xml', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml'), ('xl/styles.xml','application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml')]
             for index, (name, rows) in enumerate(sheets.items(),1):
-                leading = ['erp_id', 'nombre_erp', 'referencia_erp', 'nombre_corto_erp', 'estado_erp', 'inventario_erp', 'precio_erp', 'precio_sin_impuesto_erp', 'unidad_erp', 'codigo_barras_erp', 'marcas_vigencia_erp', 'elegible_precio', 'motivo_clasificacion'] if name in (ERP_ACTIVE_ABSENT_PS_SHEET, ERP_INACTIVE_ABSENT_PS_SHEET) else []
+                leading = LEADING_FIELDS
                 ordered_fields = [f for f in leading if f in fields] + [f for f in fields if f not in leading]
                 end = column(len(ordered_fields))+str(len(rows)+1)
                 columns = ''.join('<col min="{0}" max="{0}" width="{1}" customWidth="1"/>'.format(i, 52 if 'nombre' in f or f in ('motivo','motivo_clasificacion') else 22 if f in NUMERIC else 26) for i,f in enumerate(ordered_fields,1))

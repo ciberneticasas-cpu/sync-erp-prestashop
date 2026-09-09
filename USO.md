@@ -66,9 +66,39 @@ Cada ejecución genera `reports/sincronizacion_FECHA/`:
 `--evidence` añade lectura ERP, snapshot y plan completos. `--output RUTA` exige una
 carpeta nueva. `--settings ARCHIVO` permite elegir la configuración de otro clon local.
 El CSV completo de auditoría se sustituye por el Excel. El CSV de cambios se conserva.
-Las pestañas de fichas existentes conservan las columnas anteriores; la de ERP sin
-PrestaShop coloca primero la identificación, nombre, estado, stock y precio del ERP.
-No se publican existencias ERP.
+El orden inicial de columnas en todas las pestañas es:
+
+`referencia`, `nombre_prestashop`, `nombre_corto_erp`, `factor_conversion_precio`,
+`presentacion`, `precio_visible_base_227`, `precio_visible_229`, `diferencia_precio_visible`.
+
+- `precio_visible_base_227`: precio del motor de la tienda congelada, para la presentación
+  equivalente. No es `precio_mariadb`, que es precio sin impuestos.
+- `precio_visible_229`: en auditoría, pronóstico del motor; con `--apply`, precio leído
+  nuevamente después del lote. `verificacion_precio_visible` distingue ambos casos.
+- `diferencia_precio_visible`: precio visible .229 menos precio visible .227; negativo
+  significa que bajó frente al origen congelado.
+- `precio_visible_antes_corrida` conserva lo que tenía .229 antes de esta corrida;
+  `precio_visible_propuesto` conserva el pronóstico y `precio_visible_verificado` el
+  resultado de la relectura final. `diferencia_visible_corrida` mide únicamente el
+  cambio durante la ejecución, que puede ser cero aunque haya diferencias con .227.
+
+Cada pestaña se ordena por la mayor diferencia absoluta de cada ficha, de mayor a menor;
+la diferencia conserva su signo en la celda. Las filas de cada producto permanecen juntas,
+con `BASE` primero y las alternativas a continuación. Las fichas sin comparación van al final.
+Se mantienen los demás campos de auditoría. No se publican existencias ERP.
+
+Los precios visibles incluyen impuestos y descuentos según el motor nativo, para un
+visitante sin sesión, cantidad 1, país y moneda predeterminados. En fichas inactivas son
+importes calculados por el motor, no una afirmación de que la página esté publicada.
+El precio puede variar para un cliente, dirección, cantidad o promoción distintos.
+El pronóstico cambia exclusivamente la caché de precios en memoria del proceso lector
+(PrestaShop 8.1.7); no escribe productos ni ejecuta el escritor en .227. Tras aplicar se
+compara con una nueva lectura del motor en .229, marcando COINCIDE o DIFIERE_REVISAR.
+
+Las combinaciones entre clones se emparejan por sus atributos, no por asumir IDs iguales.
+Una caja nueva sobre una ficha antes simple se compara con el precio base de .227;
+una alternativa inexistente en .227 queda sin precio inicial ni diferencia inventados.
+Una alternativa pendiente de crear en .229 tampoco se presenta como precio publicado.
 
 Las pestañas son excluyentes y se muestran en este orden:
 
