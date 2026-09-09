@@ -72,29 +72,42 @@ No se publican existencias ERP.
 
 Las pestañas, en este orden, son:
 
-1. **Activos ambos - simples:** ERP con `estado=A` y PrestaShop activo, sin múltiples
+1. **Activos - factor no estándar:** vista adicional de las filas activas en ambos sistemas
+   cuyo `factor_conversion_precio` no pertenece a **6, 4, 2.5, 2, 1.5, 1, 0.5**.
+   La comparación es numérica exacta: `1.000000` equivale a `1` y `2,5` a `2.5`.
+   Un factor vacío o inválido también aparece, identificado en `motivo_clasificacion`.
+   Se evalúa cada presentación: una caja con factor 1 no entra por tener un blister con
+   factor 0.1; la fila del blister sí entra.
+2. **Activos ambos - simples:** ERP con `estado=A` y PrestaShop activo, sin múltiples
    presentaciones. Puede incluir variantes de talla u otros atributos.
-2. **Activos ambos - presentaciones:** los activos en ambos con más de una presentación
+3. **Activos ambos - presentaciones:** los activos en ambos con más de una presentación
    ERP real o varias combinaciones del grupo Presentación en la web. Incluye alternativas
    ERP pendientes de preparar; se conserva el estado de advertencia correspondiente.
-3. **ERP inactivo - PS activo:** `estado=I` en ERP y activo en PrestaShop.
-4. **ERP activo - PS inactivo:** `estado=A` en ERP e inactivo en PrestaShop.
-5. **ERP sin PrestaShop:** registros ERP, tanto activos como inactivos, sin correspondencia
+4. **ERP inactivo - PS activo:** `estado=I` en ERP y activo en PrestaShop.
+5. **ERP activo - PS inactivo:** `estado=A` en ERP e inactivo en PrestaShop.
+6. **ERP sin PrestaShop:** registros ERP, tanto activos como inactivos, sin correspondencia
    por referencia, códigos de barras o mapeo en el catálogo completo del destino.
-6. **Otros y por revisar:** ambos inactivos, estado desconocido o correspondencia sin resolver.
+7. **PS activo sin ERP:** activo en PrestaShop, sin correspondencia en el ERP completo.
+8. **PS inactivo sin ERP:** inactivo en PrestaShop, sin correspondencia en el ERP completo.
+9. **Otros y por revisar:** ambos inactivos, estado desconocido o correspondencia sin resolver.
 
 La clasificación usa el estado explícito A/I, separado de `elegible_precio`: una marca
 «no usar» puede impedir la sincronización aunque el registro ERP todavía figure activo.
 El estado inicial de PrestaShop sigue viniendo de `.227`; el actual del destino permanece
-visible en `activo_destino_antes`. Cada ficha existente aparece en una sola pestaña,
-con sus filas de presentaciones agrupadas. Se conservan todos los campos de auditoría,
-incluidas sugerencias, discrepancias, valores iniciales y valores del destino.
+visible en `activo_destino_antes`. Cada ficha existente aparece en una sola pestaña de
+clasificación, con sus filas de presentaciones agrupadas, y puede aparecer además en la
+primera vista de factores. Para sumar productos o filas sin duplicar, se excluye esa
+primera pestaña. Se conservan todos los campos de auditoría, incluidas sugerencias,
+discrepancias, valores iniciales y valores del destino.
 
-Para detectar ausencias se consultan todos los productos del destino, también cuando se
-usa `--product`. La lista de ausentes siempre tiene alcance global. Una coincidencia
-ambigua de referencia/EAN cuenta como posible presencia: no se declara que falta un
-producto que podría estar ya publicado. Las ausencias son resultados de comparación de
-identificadores; este informe no crea productos ni combinaciones.
+Para detectar ERP sin PrestaShop se consultan todos los productos del destino, también
+cuando se usa `--product`: esa lista siempre tiene alcance global. Las pestañas de fichas
+PrestaShop corresponden a los productos seleccionados para la corrida. Para detectar PS
+sin ERP se usan sus identificadores iniciales de `.227` cuando está configurada la base
+congelada; si falta esa ficha inicial, no se afirma su ausencia en ERP. Se busca también
+entre ERP inactivos y excluidos. Una coincidencia ambigua de referencia/EAN cuenta como
+posible presencia y queda para revisión, no como ausencia confirmada. Las ausencias son
+resultados de comparación de identificadores; este informe no crea productos ni combinaciones.
 
 El libro incluye autofiltros, encabezado y dos columnas inmovilizados, precios y cantidades
 numéricos, y referencias/códigos como texto para conservar ceros iniciales. El texto no

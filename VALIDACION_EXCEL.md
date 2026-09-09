@@ -44,3 +44,44 @@ conserva ambos inactivos y estados/correspondencias sin resolver.
 
 Esta ejecución fue una auditoría sin escrituras. No modifica nombres, stock ni catálogo.
 El cron continúa pausado y producción no se utilizó.
+
+## Ampliación: factores y PrestaShop sin ERP
+
+Se generó `reports/libro_factores_ausencias_final/stock_auditoria_20260908_224039_380412.xlsx`
+con nueve pestañas. La lectura completa y generación tardó 14,435 segundos; archivo
+3158895 bytes. La base congelada conserva el hash
+`38d0c00f47ab5671a6f9e92a4092237eb52c21f9e28c446daa0554f8b67c7350`.
+
+| Pestaña | Productos | Filas |
+|---|---:|---:|
+| Activos - factor no estándar | 74 | 74 |
+| Activos ambos - simples | 4424 | 4537 |
+| Activos ambos - presentaciones | 68 | 136 |
+| ERP inactivo - PS activo | 382 | 382 |
+| ERP activo - PS inactivo | 149 | 275 |
+| ERP sin PrestaShop | 5835 | 5835 |
+| PS activo sin ERP | 0 | 0 |
+| PS inactivo sin ERP | 59 | 59 |
+| Otros y por revisar | 5 | 5 |
+
+La primera pestaña es una vista adicional: 72 filas con factor numérico fuera de
+6, 4, 2.5, 2, 1.5, 1, 0.5 y dos con factor vacío que requieren revisión. No se suma
+esa vista a las pestañas de clasificación. Las ausencias en ERP se contrastaron
+contra todos los identificadores ERP y las referencias/EAN de la base congelada.
+
+Validación de esta ampliación:
+
+- 56 pruebas del sincronizador y 38 del preparador correctas. La primera ejecución
+  de las pruebas del preparador coincidió con la auditoría y respetó el bloqueo
+  compartido; se repitió correctamente al terminar esta.
+- Lectura completa con openpyxl: nueve pestañas, cantidades correctas, 221668 celdas
+  numéricas, ninguna fórmula. La primera hoja coincide exactamente con el filtro
+  de las filas activas en ambos sistemas, evaluado por presentación.
+- Pruebas de equivalencia decimal, factores inválidos, separación activo/inactivo,
+  correspondencias ambiguas/inactivas, mapeos e identificadores congelados.
+- Auditoría sin `--apply`, cero cambios de precio aplicados. Continúan cuatro
+  productos bloqueados previamente en el plan; este ajuste del informe no declara
+  resueltas esas incidencias. Cron pausado y producción sin utilizar.
+
+Detalles en `reports/libro_factores_ausencias_final/validacion_libro.json` y
+`resumen.json`. El archivo XLSX sigue sin requerir dependencias adicionales en ejecución.

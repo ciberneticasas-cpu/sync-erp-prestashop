@@ -10,7 +10,7 @@ import test_prices
 
 class Workbook(unittest.TestCase):
     def row(self, pid, erp, state='A', active='1'):
-        return dict(id_producto=pid,erp_id=erp,estado_erp=state,activo_prestashop=active)
+        return dict(id_producto=pid,erp_id=erp,estado_erp=state,activo_prestashop=active,factor_conversion_precio='1')
 
     def test_partitions_and_absent_include_both_erp_states(self):
         e=dict(host='192.168.0.231',products=[],presentations=[])
@@ -23,20 +23,20 @@ class Workbook(unittest.TestCase):
         for ident,state in [('000999','A'),('000998','I')]:
             e['products'].append(dict(erp_product(),erp_id=ident,reference=ident,ean=ident,state=state))
         sheets=book.classify(rows,e,catalog,{},sincronizar.LEGACY_FIELDS+sincronizar.EXTRA_FIELDS+book.FIELDS)
-        self.assertEqual([len(sheets[n]) for n in book.SHEETS],[1,1,1,1,2,2])
-        self.assertEqual({r['erp_id'] for r in sheets[book.SHEETS[4]]},{'000999','000998'})
-        self.assertEqual(sum(len(v) for k,v in sheets.items() if k!=book.SHEETS[4]),len(rows))
+        self.assertEqual([len(sheets[n]) for n in book.SHEETS],[0,1,1,1,1,2,0,0,2])
+        self.assertEqual({r['erp_id'] for r in sheets[book.ERP_ABSENT_PS_SHEET]},{'000999','000998'})
+        self.assertEqual(sum(len(v) for k,v in sheets.items() if k!=book.ERP_ABSENT_PS_SHEET),len(rows))
 
     def test_missing_erp_presentation_is_grouped_as_multiple(self):
         s,e,c=test_prices.Prices().ready();s['products'][0]['combinations']=[]
         sheets=book.classify([self.row(7159,'026074')],e,s,c,[])
-        self.assertEqual(len(sheets[book.SHEETS[1]]),1)
+        self.assertEqual(len(sheets[book.MULTIPLE_SHEET]),1)
 
     def test_nonpresentation_variants_do_not_count_as_multiple_presentations(self):
         s,e,c=test_prices.Prices().ready();e['presentations']=[]
         for co in s['products'][0]['combinations']:co['attributes'][0]['group_name']='Talla'
         sheets=book.classify([self.row(7159,'026074')],e,s,c,[])
-        self.assertEqual(len(sheets[book.SHEETS[0]]),1)
+        self.assertEqual(len(sheets[book.SIMPLE_SHEET]),1)
 
     def test_inactive_and_ambiguous_identity_candidates_are_not_claimed_absent(self):
         s,e,c=test_prices.Prices().ready();old=e['products'][0];old['state']='I'
@@ -82,7 +82,7 @@ class Workbook(unittest.TestCase):
             self.assertEqual(len(list(folder.glob('stock_auditoria*.xlsx'))),1)
             self.assertFalse(list(folder.glob('stock_auditoria*.csv')))
             summary=sync.read_json(folder/'resumen.json')
-            self.assertEqual(summary['sheets'][book.SHEETS[4]]['rows'],0)
+            self.assertEqual(summary['sheets'][book.ERP_ABSENT_PS_SHEET]['rows'],0)
 
     def test_apply_rewrites_workbook_with_final_status_and_keeps_change_log(self):
         s,e,c=test_prices.Prices().ready();e['products'][0]['gross']='50000'
@@ -95,7 +95,63 @@ class Workbook(unittest.TestCase):
                 self.assertEqual(sincronizar.run(args,c),0)
             folder=Path(d)/'audit'
             with zipfile.ZipFile(str(next(folder.glob('stock_auditoria*.xlsx')))) as z:
-                text=z.read('xl/worksheets/sheet2.xml').decode()
+                text=z.read('xl/worksheets/sheet3.xml').decode()
                 self.assertIn('APLICADO',text);self.assertNotIn('PROPUESTO',text)
             with next(folder.glob('cambios_precios*.csv')).open(encoding='utf-8-sig') as f:
                 self.assertEqual(len(list(csv.DictReader(f))),2)
+
+    def test_factor_review_numeric_equivalence_and_invalid_values(self):
+        for value in ['6', '4.000000', '2.5', '2,5', '2', '1.5000', '1.00000000', '0.5']:
+            self.assertEqual(book.factor_review_reason(value), '', value)
+        for value in ['0.33333333', '0.1', '3', '6.000001', '0', '-1']:
+            self.assertIn('fuera', book.factor_review_reason(value), value)
+        for value in ['', None, 'NaN', 'Infinity', 'texto']:
+            self.assertIn('inválido', book.factor_review_reason(value), value)
+
+    def test_first_sheet_is_row_subset_of_active_in_both(self):
+        s,e,c=test_prices.Prices().ready()
+        rows=[dict(self.row(7159,'026074'),factor_conversion_precio=f) for f in ['1','0.1','0.33333333']]
+        sheets=book.classify(rows,e,s,c,[])
+        self.assertEqual(next(iter(sheets)),book.FACTOR_SHEET)
+        self.assertEqual([r['factor_conversion_precio'] for r in sheets[book.FACTOR_SHEET]],['0.1','0.33333333'])
+        self.assertEqual(len(sheets[book.MULTIPLE_SHEET]),3)
+        self.assertEqual(sheets[book.MULTIPLE_SHEET][1]['clasificacion_informe'],book.MULTIPLE_SHEET)
+        self.assertEqual(sheets[book.FACTOR_SHEET][0]['clasificacion_informe'],book.FACTOR_SHEET)
+        for state,active in [('I','1'),('A','0'),('I','0')]:
+            excluded=[dict(self.row(7159,'026074',state,active),factor_conversion_precio='0.1')]
+            self.assertFalse(book.classify(excluded,e,s,c,[])[book.FACTOR_SHEET])
+
+    def test_missing_erp_separates_ps_states_and_keeps_family(self):
+        s,e,c=test_prices.Prices().ready();e['products']=[];e['presentations']=[]
+        s['products'].append(dict(product(),id=9,reference='999',ean13='999'))
+        rows=[self.row(7159,'','','1'),self.row(7159,'','','1'),self.row(9,'','','0')]
+        sheets=book.classify(rows,e,s,c,[])
+        self.assertEqual(len(sheets[book.PS_ACTIVE_ABSENT_ERP_SHEET]),2)
+        self.assertEqual(len(sheets[book.PS_INACTIVE_ABSENT_ERP_SHEET]),1)
+        self.assertFalse(sheets[book.REVIEW_SHEET])
+        self.assertFalse(sheets[book.FACTOR_SHEET])
+
+    def test_unresolved_candidates_are_not_missing_even_when_inactive(self):
+        s,e,c=test_prices.Prices().ready();old=e['products'][0];old['state']='I'
+        e['products'].append(dict(old,erp_id='other',reference='other'))
+        rows=[self.row(7159,'','','1')]
+        sheets=book.classify(rows,e,s,c,[])
+        self.assertEqual(len(sheets[book.REVIEW_SHEET]),1)
+        self.assertFalse(sheets[book.PS_ACTIVE_ABSENT_ERP_SHEET])
+        s['products'][0].update(reference='missing',ean13='missing')
+        c['mappings']={'7159':{'erp_id':old['erp_id']}}
+        self.assertFalse(book.classify(rows,e,s,c,[])[book.PS_ACTIVE_ABSENT_ERP_SHEET])
+        c['mappings']['7159']['erp_id']='nonexistent'
+        self.assertEqual(len(book.classify(rows,e,s,c,[])[book.PS_ACTIVE_ABSENT_ERP_SHEET]),1)
+
+    def test_missing_erp_uses_frozen_identity_and_does_not_guess_without_it(self):
+        s,e,c=test_prices.Prices().ready()
+        initial=copy.deepcopy(s)
+        s['products'][0].update(reference='missing',ean13='missing')
+        rows=[self.row(7159,'','','1')]
+        self.assertFalse(book.classify(rows,e,s,c,[],initial_catalog=initial)[book.PS_ACTIVE_ABSENT_ERP_SHEET])
+        self.assertFalse(book.classify(rows,e,s,c,[],initial_catalog={'products':[]})[book.PS_ACTIVE_ABSENT_ERP_SHEET])
+        s,e,c=test_prices.Prices().ready()
+        initial['products'][0].update(reference='missing',ean13='missing')
+        sheets=book.classify(rows,e,s,c,[],initial_catalog=initial)
+        self.assertEqual(len(sheets[book.PS_ACTIVE_ABSENT_ERP_SHEET]),1)
