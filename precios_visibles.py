@@ -63,6 +63,11 @@ def read(settings, catalog, plan=None, baseline=False):
     host = frozen_host if baseline else sync.test_host(settings)
     if baseline and (not host or host == sync.test_host(settings)):
         raise ValueError('Origen congelado de precios no configurado o igual al destino')
+    if baseline and host == 'www.mercaboy.com':
+        import origen_directo
+        value = origen_directo.prices(catalog)
+        currency(value)
+        return value
     operations = {o['id']: o for o in (plan or {}).get('operations', [])}
     products = []
     for p in catalog['products']:

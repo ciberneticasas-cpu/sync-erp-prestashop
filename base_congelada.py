@@ -11,6 +11,9 @@ def read(settings, ids=None):
     host = sync.frozen_host(settings)
     if not host or sync.test_host(settings) == host:
         raise ValueError('BASE_CONGELADA: el servidor congelado debe ser origen, nunca destino')
+    if host == 'www.mercaboy.com':
+        import origen_directo
+        return origen_directo.read(settings, ids)
     # Solo las funciones de lectura compartidas; no se envía el escritor al servidor congelado.
     reader = (sync.ROOT / 'bridge.php').read_text().split('function boot(', 1)[0]
     payload = dict(test_host=host, SERVIDOR_CONGELADO=host, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], ids=ids or [])

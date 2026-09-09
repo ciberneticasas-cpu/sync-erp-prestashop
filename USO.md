@@ -13,82 +13,85 @@ python3 sincronizar.py --apply
 python3 sincronizar.py --apply --product 4480
 ```
 
-## Punto de partida congelado en desarrollo
+## Origen de comparación y destino de escritura
 
-En `settings.json` se define el origen de comparación:
+La configuración actual en `settings.json` es:
 
 ```json
-"SERVIDOR_CONGELADO": "192.168.0.227"
+"test_host": "192.168.0.229",
+"SERVIDOR_CONGELADO": "www.mercaboy.com",
+"baseline_env_file": "/opt/prestashopsyncConsultaMariaDB/.env"
 ```
 
-Para una nueva copia congelada basta cambiar esa IP. También se puede sobrescribir
-para una ejecución mediante una variable de entorno, sin editar el archivo:
+`SERVIDOR_CONGELADO` puede sobrescribirse con una variable de entorno del mismo nombre.
+Se conserva `baseline_host` como alias para configuraciones antiguas. Un origen explícito
+vacío o inválido se rechaza. Las credenciales ERP/destino permanecen en `env_file`;
+`baseline_env_file` contiene exclusivamente las credenciales del origen directo y nunca
+se copia a Git ni a los informes. El escritor sigue restringido al clon LAN, su IP local,
+la base `mercaboy_pruebas` y `/var/www/html`; no admite un dominio público como destino.
 
-```bash
-SERVIDOR_CONGELADO=192.168.0.227 python3 sincronizar.py --apply
-```
+### Lectura directa de producción
 
-La prioridad es variable de entorno `SERVIDOR_CONGELADO`, luego la propiedad del mismo
-nombre en `settings.json`; `baseline_host` se acepta únicamente por compatibilidad
-con configuraciones antiguas. No es necesario cambiar el `.env` de credenciales ERP.
-El cron utilizará la configuración del archivo salvo que se defina esa variable en
-su entorno. Ambos programas comparten el archivo y la misma protección de escritura.
-Un valor explícito vacío o inválido produce error; nunca cambia silenciosamente al destino.
+Se reutiliza la conexión validada con `cargo run` en `/opt/prestashopsyncConsultaMariaDB`:
+MariaDB `www.mercaboy.com:3306`, base `mercaboy_2024`, prefijo `ps_`. Su transporte actual
+es el mismo de ese programa, sin TLS. El usuario tiene permisos amplios; **no se afirma
+que la cuenta sea SELECT-only**. El lector impone y verifica `SET SESSION TRANSACTION
+READ ONLY`, inicia `START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY` y termina
+con `ROLLBACK`. Las consultas de catálogo y precios comparten esa transacción.
 
-En cada corrida se consulta por SSH `root@SERVIDOR_CONGELADO` (actualmente
-`root@192.168.0.227`) el snapshot completo de MariaDB: productos,
-nombres, referencias, códigos, precios, PUM, estado, existencias, combinaciones,
-atributos y precios específicos. Se reutilizan exactamente las consultas del lector
-local. El puerto MariaDB respondió, pero las credenciales locales no permitieron acceso
-remoto; se utiliza SSH sin cambiar permisos de la base ni instalar archivos remotos.
-Si falla esta lectura, la ejecución se detiene antes de escribir. No usa el destino ni
-un CSV anterior como sustituto. Se exige clave SSH disponible para el usuario del cron.
-La lectura de precios visibles también usa ese servidor. Se comprueba que la respuesta
-proceda del origen solicitado y que sea distinto del destino. Los escritores de precios,
-el preparador de combinaciones y las reparaciones del tema rechazan escribir sobre el
-servidor congelado configurado. `base_host` en el libro y `servidor_congelado` en
-`resumen.json` registran el origen efectivo, incluida una sobrescritura de entorno.
-Por compatibilidad, las columnas `precio_visible_base_227` y `precio_visible_229`
-conservan sus nombres históricos: su significado es origen congelado y destino configurado;
-las IP efectivas se encuentran en `base_host` y en el resumen.
+El adaptador rechaza SQL distinto de SELECT/EXPLAIN SELECT, excepto la apertura literal
+de la transacción de lectura; SHOW GRANTS se usa exclusivamente para registrar permisos
+sin mostrar hashes ni contraseñas. También rechaza sentencias múltiples, comentarios,
+SELECT INTO OUTFILE, bloqueos y funciones de efectos laterales. Las pruebas de rechazo
+se ejecutan sin conexión: no se intenta escribir en producción para comprobarlo.
+No se cambian usuarios, permisos, datos, módulos, nombres, stock ni configuración del origen.
 
-Esta variable prepara el cambio de origen; no habilita por sí sola producción.
-Los adaptadores siguen limitados a IPv4 LAN, la base `mercaboy_pruebas` y la raíz
-`/var/www/html`. El nuevo origen debe ser una copia accesible por SSH y con ese formato.
-Las rutas, base y permisos de cPanel se adaptarán y comprobarán en la preparación
-específica de producción. No se ha accedido a `www.mercaboy.com`.
+El proceso PHP se ejecuta en `.229`: carga únicamente las clases locales del motor 8.1.7,
+conecta directamente a la base productiva y consulta sus datos. No usa SSH ni ejecuta
+PHP, el arranque completo de PrestaShop, un kernel o módulos en producción. No crea
+una base temporal ni una réplica. Los datos leídos y las cachés viven en memoria durante
+la ejecución; los informes y evidencias se guardan localmente como en las corridas previas.
+Si un hook activo pudiera modificar el cálculo, se bloquea para revisión en vez de
+omitir silenciosamente su efecto o ejecutar módulos. Se exige versión 8.1.7 en ambos lados.
 
+Las consultas nativas de precios específicos se agrupan con UNION ALL conservando
+literalmente sus condiciones, orden y LIMIT. Las demás cachés se precargan con lecturas
+por lote. La caché fiscal se alimenta inmediatamente antes de cada cálculo porque el
+motor elimina su caché local al superar 1000 entradas. Se validó contra el motor sin
+precarga y contra fichas públicas. Las visitas web se usan solo para comprobaciones puntuales.
 
-La copia `.229` sigue siendo el destino. Su lectura actual sirve para localizar las
-combinaciones, detectar qué importes requieren una escritura y comprobar que el producto
-no cambió entre la auditoría y la aplicación. La elegibilidad, la correspondencia ERP y
-los datos iniciales de cálculo parten de `.227`. El motor del destino verifica los
-precios publicados. El nombre, el estado activo y las existencias no se escriben.
+`source_read_only` en `resumen.json` registra modo de lectura, transacción, consultas,
+permisos y ausencia de escrituras/ejecución PHP remota. `base_host` y `base_huella`
+identifican la lectura utilizada. Que cambie la huella entre corridas es normal:
+**producción es un origen vivo**, aunque la variable conserve el nombre SERVIDOR_CONGELADO.
+Cada corrida obtiene una vista consistente; no convierte la tienda real en una copia congelada.
 
-Los campos anteriores (`nombre_prestashop`, `referencia`, `inventario_mariadb`,
-`precio_mariadb`, `precio_base_anterior`, `impacto_anterior`, `activo_prestashop` y los
-`pum_*_anterior`) corresponden a `.227`. Las columnas `*_destino_antes` conservan la
-lectura real previa a esta corrida en `.229`. `nombre_destino_actual` identifica el
-nombre que permanece publicado. `final_sync` refleja la existencia del destino, que
-el sincronizador no modifica. `base_host` y `base_huella` identifican la lectura inicial.
+### Uso de una copia LAN congelada
 
-Las combinaciones se corresponden por grupo y valor de atributo dentro del mismo
-producto; no se presupone que IDs reutilizados entre clones sean equivalentes. Si una
-combinación fue creada después de la copia, `base_estado=COMBINACION_NUEVA_SIN_BASE` y
-sus importes/existencias anteriores quedan vacíos. Los datos originales del padre
-siguen disponibles en `precio_base_anterior`, `inventario_producto_inicial`,
-`pum_precio_producto_inicial`, `pum_ratio_producto_inicial` y `pum_unidad_anterior`.
-No se asigna a una combinación nueva un precio histórico que nunca tuvo.
+Para volver al modo anterior basta configurar `SERVIDOR_CONGELADO` con la IP de la copia,
+por ejemplo `192.168.0.227`. Se conserva la lectura SSH como `root`, con base
+`mercaboy_pruebas`, rutas de pruebas y motor de precios del clon. Ningún escritor admite
+el origen configurado como destino. El cron permanece pausado.
 
-`diferencia_respecto_base` compara el resultado con el punto de partida y puede seguir
-en SI durante muchas corridas. `cambio_aplicado_en_corrida` y el archivo de cambios
-registran únicamente escrituras reales de esa ejecución; una diferencia histórica no
-provoca escrituras ni registros repetidos. Un producto del destino ausente en la base
-inicial queda bloqueado para revisión.
+### Campos iniciales y controles
 
-Este modo corresponde al entorno de desarrollo. Al preparar el uso normal se debe
-revisar expresamente la configuración del origen. El cron permanece pausado desde
-la solicitud del usuario; este ajuste no lo reinstala.
+Todos los datos iniciales —nombres, referencias, precios, PUM, estados, existencias,
+atributos y combinaciones— proceden del origen seleccionado. El destino se vuelve a leer
+para localizar combinaciones, determinar escrituras necesarias y verificar resultados.
+Los campos `*_destino_antes` conservan la lectura previa real de `.229`; los campos
+anteriores y `inventario_mariadb` corresponden al origen. El stock y los nombres no se escriben.
+
+Si falta el producto en el origen, queda bloqueado; si el destino está inactivo, tampoco
+se escribe aunque producción esté activa. Las combinaciones se emparejan por grupo y
+valor de atributo; una combinación nueva no recibe un precio histórico inventado.
+La elegibilidad y las marcas ERP mantienen sus controles anteriores. No se crean productos.
+Una diferencia histórica no provoca escrituras repetidas: el CSV de cambios registra
+solo las escrituras efectivas de la corrida.
+
+Con producción como origen, los encabezados XLSX muestran `precio_visible_origen` y
+`precio_visible_destino`, incluidos sus campos técnicos. Los identificadores internos
+`precio_visible_base_227` y `precio_visible_229` se conservan por compatibilidad; corresponden
+respectivamente al origen y destino efectivos. En modo LAN se mantienen los encabezados anteriores.
 
 Cada ejecución genera `reports/sincronizacion_FECHA/`:
 
@@ -104,18 +107,19 @@ El CSV completo de auditoría se sustituye por el Excel. El CSV de cambios se co
 El orden inicial de columnas en todas las pestañas es:
 
 `referencia`, `nombre_prestashop`, `nombre_corto_erp`, `factor_conversion_precio`,
-`presentacion`, `precio_visible_base_227`, `precio_visible_229`, `diferencia_precio_visible`.
+`presentacion`, `precio_visible_origen`, `precio_visible_destino`, `diferencia_precio_visible`
+(con producción como origen).
 
-- `precio_visible_base_227`: precio del motor de la tienda congelada, para la presentación
+- `precio_visible_origen`: precio del motor del origen configurado, para la presentación
   equivalente. No es `precio_mariadb`, que es precio sin impuestos.
-- `precio_visible_229`: en auditoría, pronóstico del motor; con `--apply`, precio leído
+- `precio_visible_destino`: en auditoría, pronóstico del motor; con `--apply`, precio leído
   nuevamente después del lote. `verificacion_precio_visible` distingue ambos casos.
-- `diferencia_precio_visible`: precio visible .229 menos precio visible .227; negativo
-  significa que bajó frente al origen congelado.
+- `diferencia_precio_visible`: precio visible del destino menos precio visible del origen; negativo
+  significa que bajó frente al origen.
 - `precio_visible_antes_corrida` conserva lo que tenía .229 antes de esta corrida;
   `precio_visible_propuesto` conserva el pronóstico y `precio_visible_verificado` el
   resultado de la relectura final. `diferencia_visible_corrida` mide únicamente el
-  cambio durante la ejecución, que puede ser cero aunque haya diferencias con .227.
+  cambio durante la ejecución, que puede ser cero aunque haya diferencias con el origen.
 
 Los importes visibles se redondean con la precisión de la moneda y el modo configurado
 en PrestaShop. En esta tienda es COP, **0 decimales**, redondeo HALF_UP. Se aplica a los
@@ -168,12 +172,12 @@ visitante sin sesión, cantidad 1, país y moneda predeterminados. En fichas ina
 importes calculados por el motor, no una afirmación de que la página esté publicada.
 El precio puede variar para un cliente, dirección, cantidad o promoción distintos.
 El pronóstico cambia exclusivamente la caché de precios en memoria del proceso lector
-(PrestaShop 8.1.7); no escribe productos ni ejecuta el escritor en .227. Tras aplicar se
+(PrestaShop 8.1.7); no escribe productos ni ejecuta el escritor en el origen. Tras aplicar se
 compara con una nueva lectura del motor en .229, marcando COINCIDE o DIFIERE_REVISAR.
 
 Las combinaciones entre clones se emparejan por sus atributos, no por asumir IDs iguales.
-Una caja nueva sobre una ficha antes simple se compara con el precio base de .227;
-una alternativa inexistente en .227 queda sin precio inicial ni diferencia inventados.
+Una caja nueva sobre una ficha antes simple se compara con el precio base del origen;
+una alternativa inexistente en el origen queda sin precio inicial ni diferencia inventados.
 Una alternativa pendiente de crear en .229 tampoco se presenta como precio publicado.
 
 Las pestañas son excluyentes y se muestran en este orden:
@@ -219,7 +223,7 @@ Nuevas columnas: `inventario_evaluado_ocultamiento`, `minimo_inventario_visible`
 `oculto_por_stock`, `pagina_bloqueada_por_stock`, `reglas_stock_aplicadas`,
 `motivo_visibilidad_stock` y `origen_visibilidad_stock`. Estas lecturas del destino
 explican la visibilidad actual; los valores históricos como `inventario_mariadb` siguen
-procediendo de `.227`. La evaluación es por ficha completa, como hace el módulo.
+procediendo del origen configurado. La evaluación es por ficha completa, como hace el módulo.
 
 La prioridad es por ficha completa: todas sus filas permanecen juntas. Si una ficha sin
 otras presentaciones tiene alguna fila con factor no estándar, toda la ficha entra en
@@ -238,14 +242,14 @@ de cambios, no se deducen únicamente de esa columna.
 Antes de enviar el lote al escritor se verifica que cada operación pertenezca a una
 única categoría de las cinco permitidas y sea elegible. Se vuelve a comprobar la fuente
 ERP antes del lote y el escritor comprueba que el producto PS esté activo antes de
-modificarlo. Un destino inactivo o nulo bloquea la escritura aunque `.227` esté activo.
-La clasificación y los valores iniciales siguen usando `.227`; `activo_destino_antes`
+modificarlo. Un destino inactivo o nulo bloquea la escritura aunque la ficha del origen esté activa.
+La clasificación y los valores iniciales siguen usando el origen configurado; `activo_destino_antes`
 permite ver el estado actual. Los nombres, las existencias y el estado activo no se escriben.
 
 Para detectar ERP sin PrestaShop se consultan todos los productos del destino, también
 cuando se usa `--product`: esa lista siempre tiene alcance global. Las pestañas de fichas
 PrestaShop corresponden a los productos seleccionados para la corrida. Para detectar PS
-sin ERP se usan sus identificadores iniciales de `.227` cuando está configurada la base
+sin ERP se usan sus identificadores iniciales del origen cuando está configurada la base
 congelada; si falta esa ficha inicial, no se afirma su ausencia en ERP. Se busca también
 entre ERP inactivos y excluidos. Una coincidencia ambigua de referencia/EAN cuenta como
 posible presencia y queda para revisión, no como ausencia confirmada. Las ausencias son
@@ -393,6 +397,6 @@ viejos: los identificadores de combinaciones pueden diferir entre clones.
 
 Se exige base local `mercaboy_pruebas`, raíz `/var/www/html`, una sola tienda y dominio
 igual a la IP LAN configurada; el ERP permitido es 192.168.0.231, de solo lectura.
-**Esta versión no está habilitada para cPanel/mercaboy.com.** El ensayo en un clon nuevo,
+**Esta versión no permite escrituras en cPanel/mercaboy.com; únicamente lectura directa como origen.** El ensayo en un clon nuevo,
 la adaptación de rutas/permisos y las políticas de baja y stock pendientes y la revisión de nombres ambiguos
 son parte de la preparación para producción.

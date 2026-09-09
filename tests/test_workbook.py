@@ -124,6 +124,19 @@ class Workbook(unittest.TestCase):
                 self.assertEqual(sheet.find('.//s:pane',ns).attrib['state'],'frozen')
             self.assertFalse(path.with_suffix('.xlsx.tmp').exists())
 
+    def test_production_source_headers_identify_origin_and_destination(self):
+        fields=['base_host','precio_visible_base_227','precio_visible_229','precio_visible_base_227_tecnico']
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'audit.xlsx'
+            book.write(path,{'Datos':[dict(base_host='www.mercaboy.com',precio_visible_base_227='2250',precio_visible_229='1950')]},fields)
+            with zipfile.ZipFile(str(path)) as z:
+                tree=ET.fromstring(z.read('xl/worksheets/sheet1.xml'))
+                headers=[c.find('s:is/s:t',{'s':book.NS}).text for c in tree.find('s:sheetData/s:row',{'s':book.NS})]
+                self.assertIn('precio_visible_origen',headers)
+                self.assertIn('precio_visible_destino',headers)
+                self.assertIn('precio_visible_origen_tecnico',headers)
+                self.assertNotIn('precio_visible_base_227',headers)
+
     def test_product_filter_uses_full_catalog_for_absence_and_replaces_audit_csv(self):
         s,e,c=test_prices.Prices().ready()
         s['products'].append(dict(product(),id=9,reference='000009',ean13='999',combinations=[]))

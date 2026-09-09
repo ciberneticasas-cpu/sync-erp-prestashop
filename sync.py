@@ -34,7 +34,9 @@ def frozen_host(settings):
     value = os.environ.get('SERVIDOR_CONGELADO', settings.get('SERVIDOR_CONGELADO', settings.get('baseline_host')))
     if not isinstance(value, str):
         raise ValueError('SERVIDOR_CONGELADO debe ser una IPv4 LAN en texto')
-    # Same LAN restriction as the test adapters. Empty/malformed values fail closed.
+    # Public host is allowed only as source; test_host/target still reject it.
+    if value == 'www.mercaboy.com':
+        return value
     return test_host({'test_host': value})
 
 

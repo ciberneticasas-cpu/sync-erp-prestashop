@@ -313,6 +313,11 @@ STYLES = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 def write(path, sheets, fields):
     path = Path(path)
     temporary = path.with_suffix('.xlsx.tmp')
+    production_source = any(r.get('base_host') == 'www.mercaboy.com' for rows in sheets.values() for r in rows)
+    def header(field):
+        if production_source:
+            return field.replace('precio_visible_base_227', 'precio_visible_origen').replace('precio_visible_229', 'precio_visible_destino')
+        return field
     xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     def relationships(items):
         return xml+'<Relationships xmlns="'+PACKAGE+'">'+''.join('<Relationship Id="{}" Type="{}" Target={}/>'.format(i, t, quoteattr(target)) for i,t,target in items)+'</Relationships>'
@@ -333,7 +338,7 @@ def write(path, sheets, fields):
                 # Streaming ZIP writing bounds memory even for the complete ERP catalog.
                 with archive.open(filename, 'w') as stream:
                     stream.write(start.encode('utf-8'))
-                    stream.write(('<row r="1" ht="46" customHeight="1">'+''.join(cell(column(i)+'1',f,header=True) for i,f in enumerate(ordered_fields,1))+'</row>').encode('utf-8'))
+                    stream.write(('<row r="1" ht="46" customHeight="1">'+''.join(cell(column(i)+'1',header(f),header=True) for i,f in enumerate(ordered_fields,1))+'</row>').encode('utf-8'))
                     for number, row in enumerate(rows,2):
                         stream.write(('<row r="'+str(number)+'">'+''.join(cell(column(i)+str(number),row.get(f,''),f) for i,f in enumerate(ordered_fields,1))+'</row>').encode('utf-8'))
                     stream.write(('</sheetData><autoFilter ref="A1:'+end+'"/></worksheet>').encode('utf-8'))
