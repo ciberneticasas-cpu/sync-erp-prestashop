@@ -28,7 +28,7 @@ class Workbook(unittest.TestCase):
         for ident,state in [('000999','A'),('000998','I')]:
             e['products'].append(dict(erp_product(),erp_id=ident,reference=ident,ean=ident,state=state))
         sheets=book.classify(rows,e,catalog,{},sincronizar.LEGACY_FIELDS+sincronizar.EXTRA_FIELDS+book.FIELDS)
-        self.assertEqual([len(sheets[n]) for n in book.SHEETS],[1,1,0,1,1,0,0,1,1,1,0,1])
+        self.assertEqual([len(sheets[n]) for n in book.SHEETS],[1,0,1,0,0,1,1,0,0,1,1,1,0,1])
         self.assertEqual([r['erp_id'] for r in sheets[book.ERP_ACTIVE_ABSENT_PS_SHEET]],['000999'])
         self.assertEqual([r['erp_id'] for r in sheets[book.ERP_INACTIVE_ABSENT_PS_SHEET]],['000998'])
         self.assertEqual(sum(len(v) for k,v in sheets.items() if k not in (book.ERP_ACTIVE_ABSENT_PS_SHEET,book.ERP_INACTIVE_ABSENT_PS_SHEET)),len(rows))
@@ -188,7 +188,7 @@ class Workbook(unittest.TestCase):
             self.assertEqual(len(sheets[expected]),1)
             self.assertEqual(sheets[expected][0]['elegible_precio'],'NO')
 
-    def test_operations_only_allowed_in_first_three_categories(self):
+    def test_operations_only_allowed_in_active_categories(self):
         for name in book.SHEETS:
             plan={'operations':[{'id':7159}]}
             sheets={name:[dict(self.row(7159,'026074'),elegible_precio='SI')]}
@@ -211,3 +211,27 @@ class Workbook(unittest.TestCase):
                 with patch('libro_auditoria.validate_price_plan',side_effect=inject):
                     with self.assertRaisesRegex(ValueError,'CATEGORIAS_ELEGIBLES'):sincronizar.run(args,c)
                 apply.assert_not_called()
+
+    def test_low_stock_subdivides_only_presentations_and_standard_simple(self):
+        s,e,c=test_prices.Prices().ready()
+        stock={'7159':dict(quantity=0,minimum=5,hidden=True,page_blocked=True,rules='187:5',reason='INVENTARIO_BAJO')}
+        rows=[dict(self.row(7159,'026074'),presentacion_id=p,resultado='PROPUESTO') for p in ['BASE','1414']]
+        sheets=book.classify(rows,e,s,c,[],stock_visibility=stock)
+        self.assertEqual(len(sheets[book.MULTIPLE_LOW_STOCK_SHEET]),2)
+        self.assertFalse(sheets[book.MULTIPLE_SHEET])
+        self.assertTrue(all(r['elegible_precio']=='SI' and r['oculto_por_stock']=='SI' for r in sheets[book.MULTIPLE_LOW_STOCK_SHEET]))
+        book.validate_price_plan({'operations':[{'id':7159}]},sheets)
+        s['products'][0]['combinations']=[];e['presentations']=[]
+        sheets=book.classify(rows[:1],e,s,c,[],stock_visibility=stock)
+        self.assertEqual(len(sheets[book.SIMPLE_LOW_STOCK_SHEET]),1)
+        rows[0]['factor_conversion_precio']='0.33333333'
+        sheets=book.classify(rows[:1],e,s,c,[],stock_visibility=stock)
+        self.assertEqual(len(sheets[book.FACTOR_SHEET]),1)
+        self.assertEqual(sheets[book.FACTOR_SHEET][0]['oculto_por_stock'],'SI')
+        stock['7159'].update(hidden=False,minimum=0,page_blocked=False,reason='SIN_REGLA_APLICABLE')
+        rows[0]['factor_conversion_precio']='1'
+        sheets=book.classify(rows[:1],e,s,c,[],stock_visibility=stock)
+        self.assertEqual(len(sheets[book.SIMPLE_SHEET]),1)
+        self.assertEqual(sheets[book.SIMPLE_SHEET][0]['origen_visibilidad_stock'],'192.168.0.186')
+        with self.assertRaisesRegex(ValueError,'FALTA_VISIBILIDAD_STOCK'):
+            book.classify(rows,e,s,c,[],stock_visibility={})

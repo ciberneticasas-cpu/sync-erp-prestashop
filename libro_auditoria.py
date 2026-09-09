@@ -11,8 +11,10 @@ import vigencia
 import precios_visibles
 
 FACTOR_SHEET = 'Activos - factor no estándar'
-SIMPLE_SHEET = 'Activos ambos - simples'
-MULTIPLE_SHEET = 'Activos ambos - presentaciones'
+SIMPLE_SHEET = 'Simples - sin ocultar'
+SIMPLE_LOW_STOCK_SHEET = 'Simples - stock bajo'
+MULTIPLE_SHEET = 'Presentaciones - sin ocultar'
+MULTIPLE_LOW_STOCK_SHEET = 'Presentaciones - stock bajo'
 ERP_INACTIVE_SHEET = 'ERP inactivo - PS activo'
 PS_INACTIVE_SHEET = 'ERP activo - PS inactivo'
 ERP_ACTIVE_ABSENT_PS_SHEET = 'ERP activo sin PS'
@@ -22,11 +24,11 @@ PS_NULL_SHEET = 'PS nulo'
 PS_ACTIVE_ABSENT_ERP_SHEET = 'PS activo sin ERP'
 PS_INACTIVE_ABSENT_ERP_SHEET = 'PS inactivo sin ERP'
 REVIEW_SHEET = 'Otros y por revisar'
-SHEETS = [MULTIPLE_SHEET, SIMPLE_SHEET, FACTOR_SHEET, ERP_INACTIVE_SHEET,
+SHEETS = [MULTIPLE_SHEET, MULTIPLE_LOW_STOCK_SHEET, SIMPLE_SHEET, SIMPLE_LOW_STOCK_SHEET, FACTOR_SHEET, ERP_INACTIVE_SHEET,
           PS_INACTIVE_SHEET, PS_ACTIVE_ABSENT_ERP_SHEET, PS_INACTIVE_ABSENT_ERP_SHEET,
           ERP_ACTIVE_ABSENT_PS_SHEET, ERP_INACTIVE_ABSENT_PS_SHEET,
           ERP_NULL_SHEET, PS_NULL_SHEET, REVIEW_SHEET]
-PRICE_SHEETS = frozenset(SHEETS[:3])
+PRICE_SHEETS = frozenset(SHEETS[:5])
 STANDARD_FACTORS = frozenset(Decimal(v) for v in ('6', '4', '2.5', '2', '1.5', '1', '0.5'))
 FIELDS = ['referencia_erp', 'codigo_barras_erp', 'codigo_barras_erp_2', 'codigo_barras_erp_3', 'clasificacion_informe', 'motivo_clasificacion']
 NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
@@ -34,7 +36,8 @@ REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 PACKAGE = 'http://schemas.openxmlformats.org/package/2006/relationships'
 NUMERIC = set('factor_conversion_precio,inventario_erp,inventario_para_prestashop,inventario_mariadb,final_sync,precio_mariadb,precio_sin_impuesto_erp,ivaid,precio_erp,precio_para_prestashop,pum_ratio,pum_precio_unitario,impacto_precio,precio_final_sin_iva,precio_visible_verificado,precio_base_anterior,precio_base_nuevo,impacto_anterior,pum_ratio_final,pum_ratio_anterior,pum_ratio_propuesto,pum_precio_unitario_anterior,pum_precio_unitario_propuesto,pum_precio_visible_verificado,pum_contenido_erp,pum_contenido_erp_convertido,pum_contenido_nombre,pum_contenido_nombre_convertido,pum_factor_presentacion_nombre,cantidad_presentaciones_erp,cantidad_presentaciones_web,cantidad_presentaciones_iniciales,inventario_producto_inicial,pum_precio_producto_inicial,pum_ratio_producto_inicial,inventario_destino_antes,precio_destino_antes,precio_base_destino_antes,impacto_destino_antes,pum_precio_unitario_destino_antes,pum_ratio_destino_antes'.split(','))
 
-FIELDS += precios_visibles.FIELDS
+FIELDS += precios_visibles.FIELDS + ['inventario_evaluado_ocultamiento', 'minimo_inventario_visible', 'oculto_por_stock', 'pagina_bloqueada_por_stock', 'reglas_stock_aplicadas', 'motivo_visibilidad_stock', 'origen_visibilidad_stock']
+NUMERIC.update(['inventario_evaluado_ocultamiento', 'minimo_inventario_visible'])
 NUMERIC.update(precios_visibles.NUMERIC)
 LEADING_FIELDS = ['referencia', 'nombre_prestashop', 'nombre_corto_erp', 'factor_conversion_precio', 'presentacion', 'precio_visible_base_227', 'precio_visible_229', 'diferencia_precio_visible']
 
@@ -71,7 +74,7 @@ def factor_review_reason(value):
     return 'Factor vacío o inválido: revisar'
 
 
-def classify(rows, erp, catalog, settings, fields, initial_catalog=None):
+def classify(rows, erp, catalog, settings, fields, initial_catalog=None, stock_visibility=None):
     prepared = match_erp.index(erp, eligible_only=False)
     products = prepared[0]
     initial = {p['id']: p for p in (initial_catalog if initial_catalog is not None else catalog)['products']}
@@ -115,8 +118,17 @@ def classify(rows, erp, catalog, settings, fields, initial_catalog=None):
             name = PS_NULL_SHEET
         else:
             name = REVIEW_SHEET
+        stock = (stock_visibility or {}).get(str(pid))
+        if stock_visibility is not None and stock is None:
+            raise ValueError('FALTA_VISIBILIDAD_STOCK: '+str(pid))
+        if stock and stock['hidden']:
+            name = {MULTIPLE_SHEET: MULTIPLE_LOW_STOCK_SHEET, SIMPLE_SHEET: SIMPLE_LOW_STOCK_SHEET}.get(name, name)
         for row in family:
             enrich(row, e)
+            if stock:
+                row.update(inventario_evaluado_ocultamiento=stock['quantity'], minimo_inventario_visible=stock['minimum'],
+                    oculto_por_stock='SI' if stock['hidden'] else 'NO', pagina_bloqueada_por_stock='SI' if stock['page_blocked'] else 'NO',
+                    reglas_stock_aplicadas=stock['rules'], motivo_visibilidad_stock=stock['reason'], origen_visibilidad_stock=sync.test_host(settings))
             row.update(clasificacion_informe=name, motivo_clasificacion='Estado ERP='+state+'; activo PrestaShop='+active)
             if absent:
                 row['motivo_clasificacion'] = 'Sin correspondencia por referencia, EAN o mapeo en el ERP completo; activo PrestaShop='+active

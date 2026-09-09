@@ -223,7 +223,7 @@ def run(args, settings):
     workbook_path = output/('stock_auditoria_'+stamp+'.xlsx')
     fields = LEGACY_FIELDS + EXTRA_FIELDS + libro_auditoria.FIELDS
     audit_rows = precios_visibles.enrich(report_rows(snapshot, erp, plan, settings), initial, catalog, visible_before, visible_initial)
-    sheets = libro_auditoria.classify(audit_rows, erp, catalog, settings, fields, initial_catalog=initial)
+    sheets = libro_auditoria.classify(audit_rows, erp, catalog, settings, fields, initial_catalog=initial, stock_visibility=visible_before.get('stock_visibility'))
     libro_auditoria.validate_price_plan(plan, sheets)
     sheet_counts = libro_auditoria.write(workbook_path, sheets, fields)
     print('Libro: '+str(workbook_path), flush=True)
@@ -238,7 +238,7 @@ def run(args, settings):
         visible_after = precios_visibles.read(settings, snapshot)
         sync.write_json(output/'precios_visibles_despues.json', visible_after)
         audit_rows = precios_visibles.enrich([dict(r) for r in rows], initial, catalog, visible_before, visible_initial, visible_after)
-        sheets = libro_auditoria.classify(audit_rows, erp, catalog, settings, fields, initial_catalog=initial)
+        sheets = libro_auditoria.classify(audit_rows, erp, catalog, settings, fields, initial_catalog=initial, stock_visibility=visible_after.get('stock_visibility'))
         sheet_counts = libro_auditoria.write(workbook_path, sheets, fields)
     changes_path = output/('cambios_precios_'+stamp+'.csv')
     changes = price_changes(rows)

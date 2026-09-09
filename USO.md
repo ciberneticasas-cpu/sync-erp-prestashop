@@ -102,41 +102,65 @@ Una alternativa pendiente de crear en .229 tampoco se presenta como precio publi
 
 Las pestañas son excluyentes y se muestran en este orden:
 
-1. **Activos ambos - presentaciones:** activos en ERP y PS, con más de una presentación
-   ERP real o varias combinaciones del grupo Presentación en PS, cualquiera que sea su
-   factor. Incluye presentaciones pendientes de preparar, con su advertencia.
-2. **Activos ambos - simples:** activos en ambos, sin otras presentaciones y con factores
-   estándar: **6, 4, 2.5, 2, 1.5, 1, 0.5**. Puede haber variantes de talla u otros atributos.
-   La comparación es numérica: `6.` equivale a `6`, `1.000000` a `1` y `2,5` a `2.5`.
-3. **Activos - factor no estándar:** los demás activos en ambos, que no entraron en las
-   dos anteriores. Incluye factores vacíos o inválidos, señalados en `motivo_clasificacion`.
-4. **ERP inactivo - PS activo:** ERP `I`, PS `1`.
-5. **ERP activo - PS inactivo:** ERP `A`, PS `0`.
-6. **PS activo sin ERP:** PS activo sin correspondencia en el ERP completo.
-7. **PS inactivo sin ERP:** PS inactivo sin correspondencia en el ERP completo.
-8. **ERP activo sin PS:** ERP activo sin correspondencia en el catálogo completo de PS.
-9. **ERP inactivo sin PS:** ERP inactivo sin correspondencia en el catálogo completo de PS.
-10. **ERP nulo:** registro ERP existente con estado vacío o NULL. Incluye los que no
+1. **Presentaciones - sin ocultar:** activos en ERP y PS con varias presentaciones,
+   sin ocultamiento por el módulo de stock, cualquiera que sea el factor.
+2. **Presentaciones - stock bajo:** mismos criterios, ocultos por inventario inferior
+   al mínimo aplicable. Todas las presentaciones de la ficha permanecen juntas.
+3. **Simples - sin ocultar:** activos en ambos, sin otras presentaciones, con factores
+   estándar y sin ocultamiento por stock. Puede haber variantes de talla u otros atributos.
+4. **Simples - stock bajo:** mismos criterios de simples estándar, ocultos por stock.
+5. **Activos - factor no estándar:** los demás activos en ambos. Incluye factores vacíos
+   o inválidos, señalados en `motivo_clasificacion`; conserva una sola pestaña.
+6. **ERP inactivo - PS activo:** ERP `I`, PS `1`.
+7. **ERP activo - PS inactivo:** ERP `A`, PS `0`.
+8. **PS activo sin ERP:** PS activo sin correspondencia en el ERP completo.
+9. **PS inactivo sin ERP:** PS inactivo sin correspondencia en el ERP completo.
+10. **ERP activo sin PS:** ERP activo sin correspondencia en el catálogo completo de PS.
+11. **ERP inactivo sin PS:** ERP inactivo sin correspondencia en el catálogo completo de PS.
+12. **ERP nulo:** registro ERP existente con estado vacío o NULL. Incluye los que no
     tienen correspondencia PS. No significa que el producto no exista en ERP.
-11. **PS nulo:** estado inicial PS vacío o NULL; incluye fichas sin origen congelado.
+13. **PS nulo:** estado inicial PS vacío o NULL; incluye fichas sin origen congelado.
     Si también hay estado ERP nulo, prevalece la pestaña anterior.
-12. **Otros y por revisar:** lo no clasificado antes, incluidos ambos inactivos, estados
+14. **Otros y por revisar:** lo no clasificado antes, incluidos ambos inactivos, estados
     distintos de A/I o 1/0 y correspondencias ambiguas.
+
+Factores estándar: **6, 4, 2.5, 2, 1.5, 1, 0.5**. La comparación sigue siendo numérica:
+`6.` equivale a `6`, `1.000000` a `1` y `2,5` a `2.5`.
+
+La división por inventario usa el estado efectivo de `stockthresholdhide` en el destino
+`.229`, su configuración vigente, categorías, subcategorías y cantidad evaluada por el
+módulo. Si coinciden varias reglas se usa el mínimo más exigente. Las expansiones de
+categorías se leen del propio módulo una vez por regla y las asociaciones en una consulta.
+Se conserva su cálculo de cantidad y su consulta alternativa cuando la cantidad es cero.
+
+«Sin ocultar» significa que ese módulo no oculta la ficha por stock; no garantiza la
+accesibilidad de la página por otros motivos. Un producto con cantidad cero y sin regla
+aplicable queda allí, igual que en la tienda. Con el módulo desactivado, ninguna ficha
+se clasifica como oculta por stock. El módulo puede ocultar listados sin bloquear la URL:
+ambos resultados se distinguen en las columnas.
+
+Nuevas columnas: `inventario_evaluado_ocultamiento`, `minimo_inventario_visible`,
+`oculto_por_stock`, `pagina_bloqueada_por_stock`, `reglas_stock_aplicadas`,
+`motivo_visibilidad_stock` y `origen_visibilidad_stock`. Estas lecturas del destino
+explican la visibilidad actual; los valores históricos como `inventario_mariadb` siguen
+procediendo de `.227`. La evaluación es por ficha completa, como hace el módulo.
 
 La prioridad es por ficha completa: todas sus filas permanecen juntas. Si una ficha sin
 otras presentaciones tiene alguna fila con factor no estándar, toda la ficha entra en
-la tercera pestaña. No se repiten productos entre pestañas; ya no existe una vista
+la quinta pestaña. No se repiten productos entre pestañas; ya no existe una vista
 adicional duplicada para factores. Se conservan sugerencias y todos los datos de auditoría.
 
-Solo las tres primeras pestañas pueden dar lugar a actualizaciones. Estar en ellas no
+Solo las cinco primeras pestañas pueden dar lugar a actualizaciones. Estar en ellas no
 obliga a actualizar: siguen vigentes las comprobaciones de precio, factor, PUM,
 correspondencia, presentaciones y marcas ERP como «no usar». `elegible_precio=SI` exige
 además estado actual activo en PS y resultado SIN_CAMBIOS, PROPUESTO o APLICADO; las
-pestañas informativas siempre indican `NO`. Las escrituras efectivas quedan en el CSV
+pestañas informativas siempre indican `NO`. Las subdivisiones por stock bajo conservan
+la elegibilidad de su categoría original: la ocultación por inventario no desactiva
+la sincronización de precios de una ficha activa. Las escrituras efectivas quedan en el CSV
 de cambios, no se deducen únicamente de esa columna.
 
 Antes de enviar el lote al escritor se verifica que cada operación pertenezca a una
-única categoría de las tres permitidas y sea elegible. Se vuelve a comprobar la fuente
+única categoría de las cinco permitidas y sea elegible. Se vuelve a comprobar la fuente
 ERP antes del lote y el escritor comprueba que el producto PS esté activo antes de
 modificarlo. Un destino inactivo o nulo bloquea la escritura aunque `.227` esté activo.
 La clasificación y los valores iniciales siguen usando `.227`; `activo_destino_antes`

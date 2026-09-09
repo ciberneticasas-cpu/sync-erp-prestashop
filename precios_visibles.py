@@ -26,9 +26,11 @@ def read(settings, catalog, plan=None, baseline=False):
             impacts.update({str(c['combination_id']):c['impact'] for c in op.get('combination_prices', [])})
             row['proposal'] = dict(base_price=op['base_price'], impacts=impacts)
         products.append(row)
-    payload = dict(test_host=host, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], products=products)
+    payload = dict(test_host=host, prestashop_root=settings['prestashop_root'], env_file=settings['env_file'], products=products, stock_visibility=not baseline)
     # Neither native writer nor apply/verify functions are sent to the frozen host.
     source = (sync.ROOT/'bridge.php').read_text().split('function verifyProduct(', 1)[0]
+    if not baseline:
+        source += (sync.ROOT/'stock_informe.php').read_text().replace('<?php', '', 1)
     source += (sync.ROOT/'precios_visibles.php').read_text().replace('<?php', '', 1)
     encoded = base64.b64encode(sync.canonical(payload)).decode('ascii')
     source += "\ntry { $request=json_decode(base64_decode('"+encoded+"'),true);"+'''
@@ -43,6 +45,8 @@ def read(settings, catalog, plan=None, baseline=False):
     value = json.loads(result.stdout.decode())
     if value.get('host') != host or len(value.get('prices', [])) != sum(1+len(p['combinations']) for p in products):
         raise ValueError('LECTURA_PRECIOS_VISIBLES_INCOMPLETA: '+host)
+    if not baseline and set(value.get('stock_visibility', {})) != {str(p['id']) for p in products}:
+        raise ValueError('LECTURA_VISIBILIDAD_STOCK_INCOMPLETA')
     return value
 
 

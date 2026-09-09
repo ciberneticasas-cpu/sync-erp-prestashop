@@ -42,7 +42,9 @@ function visiblePrices(array $request): array {
                 $result[] = ['id'=>$pid, 'combination_id'=>$cid, 'actual'=>$actual[$cid], 'proposed'=>$proposed[$cid]];
             }
         }
-        return ['host'=>TEST_HOST, 'context'=>'Visitante sin sesion, cantidad 1, moneda y pais predeterminados', 'prices'=>$result];
+        $output = ['host'=>TEST_HOST, 'context'=>'Visitante sin sesion, cantidad 1, moneda y pais predeterminados', 'prices'=>$result];
+        if (!empty($request['stock_visibility'])) { $output['stock_visibility'] = stockVisibility($request['products']); }
+        return $output;
     } finally {
         Product::flushPriceCache();
         $db->execute('ROLLBACK');
