@@ -184,14 +184,16 @@ def report_rows(snapshot, erp, plan, settings, journal=None):
     return rows
 
 
-def write_csv(path, rows):
+def write_csv(path, rows, visible_reading=None):
     path=Path(path);tmp=path.with_suffix('.csv.tmp')
     with tmp.open('w',encoding='utf-8-sig',newline='') as f:
-        writer=csv.DictWriter(f,fieldnames=LEGACY_FIELDS+EXTRA_FIELDS);writer.writeheader()
+        writer=csv.DictWriter(f,fieldnames=LEGACY_FIELDS+EXTRA_FIELDS+precios_visibles.CSV_FIELDS);writer.writeheader()
         for row in rows:
+            if visible_reading is not None:row=precios_visibles.format_verified(row, visible_reading)
             # Protect spreadsheet formulas in textual fields, preserving signed amounts.
             numeric={'factor_conversion_precio','inventario_erp','inventario_para_prestashop','inventario_mariadb','final_sync','precio_mariadb','precio_sin_impuesto_erp','ivaid','precio_erp','precio_para_prestashop','pum_ratio','pum_precio_unitario','impacto_precio','precio_final_sin_iva','precio_visible_verificado'}
             numeric.update(['precio_base_anterior', 'precio_base_nuevo', 'impacto_anterior', 'pum_ratio_final', 'pum_ratio_anterior', 'pum_ratio_propuesto', 'pum_precio_unitario_anterior', 'pum_precio_unitario_propuesto', 'pum_precio_visible_verificado', 'pum_contenido_erp', 'pum_contenido_erp_convertido', 'pum_contenido_nombre'])
+            numeric.update(precios_visibles.NUMERIC)
             writer.writerow({k:("'"+str(v) if k not in numeric and str(v).lstrip().startswith(('=','+','-','@')) else v) for k,v in row.items()})
     tmp.replace(path)
 
@@ -242,13 +244,14 @@ def run(args, settings):
         sheet_counts = libro_auditoria.write(workbook_path, sheets, fields)
     changes_path = output/('cambios_precios_'+stamp+'.csv')
     changes = price_changes(rows)
-    write_csv(changes_path, changes)
+    write_csv(changes_path, changes, visible_before)
     counts = {state:len({r['id_producto'] for r in rows if r['resultado']==state}) for state in {r['resultado'] for r in rows}}
     visible_counts = dict(collections.Counter(r['verificacion_precio_visible'] for r in audit_rows))
-    summary = dict(visible_prices=visible_counts, target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, apply=args.apply, products=len(snapshot['products']), states=counts,
+    technical_counts = dict(collections.Counter(r['verificacion_precio_visible_tecnica'] for r in audit_rows))
+    summary = dict(visible_prices=visible_counts, visible_prices_technical=technical_counts, currency=precios_visibles.currency(visible_before), target=sync.target(settings), baseline=(initial or {}).get('target'), baseline_hash=sync.digest(initial) if initial else None, apply=args.apply, products=len(snapshot['products']), states=counts,
                    workbook=str(workbook_path), sheets=sheet_counts, changes_csv=str(changes_path), changed_rows=len(changes),
                    duration_seconds=round(time.monotonic()-started,3),
-                   all_resolved=not visible_counts.get('DIFIERE_REVISAR') and not any(counts.get(k,0) for k in ['BLOQUEADO','ERROR','PROPUESTO','PENDIENTE_PRESENTACIONES']))
+                   all_resolved=not visible_counts.get('DIFIERE_REVISAR') and not technical_counts.get('DIFIERE_REVISAR') and not any(counts.get(k,0) for k in ['BLOQUEADO','ERROR','PROPUESTO','PENDIENTE_PRESENTACIONES']))
     sync.write_json(output/'resumen.json',summary)
     print(json.dumps(summary,ensure_ascii=False,indent=2))
     return 2 if args.apply and not summary['all_resolved'] else 0

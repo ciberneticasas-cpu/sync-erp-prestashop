@@ -1,6 +1,6 @@
 """Precios del motor nativo: origen congelado, pronóstico y verificación del destino."""
 import base64
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_CEILING, ROUND_FLOOR
 import json
 import subprocess
 import base_congelada
@@ -10,6 +10,52 @@ FIELDS = ['precio_visible_base_227', 'precio_visible_229', 'diferencia_precio_vi
           'precio_visible_antes_corrida', 'precio_visible_propuesto', 'diferencia_visible_corrida',
           'comparacion_precio_visible', 'verificacion_precio_visible']
 NUMERIC = set(FIELDS[:6])
+
+TECHNICAL_FIELDS = [f+'_tecnico' for f in FIELDS[:6]] + ['precio_visible_verificado_tecnico', 'pum_precio_visible_verificado_tecnico']
+CSV_FIELDS = ['precio_visible_verificado_tecnico', 'pum_precio_visible_verificado_tecnico', 'moneda_precios_visibles', 'decimales_precios_visibles']
+FIELDS += TECHNICAL_FIELDS + ['comparacion_precio_visible_tecnica', 'verificacion_precio_visible_tecnica', 'moneda_precios_visibles', 'decimales_precios_visibles']
+NUMERIC.update(TECHNICAL_FIELDS + ['decimales_precios_visibles'])
+
+
+def currency(reading):
+    # Defaults only support old saved evidence/test fixtures. Live reads require metadata.
+    value = reading.get('currency', {'iso_code':'COP', 'precision':0, 'round_mode':2})
+    if not value.get('iso_code') or not 0 <= value['precision'] <= 6 or value['round_mode'] not in range(6):
+        raise ValueError('CONFIGURACION_REDONDEO_INVALIDA')
+    return value
+
+
+def rounded(value, reading):
+    c = currency(reading)
+    number = sync.dec(value)
+    unit = Decimal(1).scaleb(-c['precision'])
+    mode = c['round_mode']
+    rounding = {0:ROUND_CEILING, 1:ROUND_FLOOR, 2:ROUND_HALF_UP, 3:ROUND_HALF_DOWN, 4:ROUND_HALF_EVEN, 5:ROUND_HALF_EVEN}[mode]
+    result = number.quantize(unit, rounding=rounding)
+    if mode == 5:
+        scaled = abs(number/unit)
+        lower = scaled.to_integral_value(rounding=ROUND_FLOOR)
+        if scaled-lower == Decimal('0.5'):
+            odd = lower if int(lower) % 2 else lower+1
+            result = ((-odd if number < 0 else odd)*unit).quantize(unit)
+    if result == 0:result=abs(result)
+    return format(result, 'f')
+
+
+def assign(row, field, value, reading):
+    row[field+'_tecnico'] = sync.money(value)
+    row[field] = rounded(value, reading)
+
+
+def format_verified(row, reading):
+    result = dict(row)
+    for field in ('precio_visible_verificado', 'pum_precio_visible_verificado'):
+        if result.get(field) not in ('', None):
+            assign(result, field, result.get(field+'_tecnico') or result[field], reading)
+    c = currency(reading)
+    result.update(moneda_precios_visibles=c['iso_code'], decimales_precios_visibles=c['precision'])
+    return result
+
 
 
 def read(settings, catalog, plan=None, baseline=False):
@@ -43,6 +89,8 @@ def read(settings, catalog, plan=None, baseline=False):
     if result.returncode:
         raise RuntimeError('PRECIOS_VISIBLES_NO_DISPONIBLES: '+host)
     value = json.loads(result.stdout.decode())
+    if 'currency' not in value:raise ValueError('FALTA_MONEDA_PRECIOS_VISIBLES')
+    currency(value)
     if value.get('host') != host or len(value.get('prices', [])) != sum(1+len(p['combinations']) for p in products):
         raise ValueError('LECTURA_PRECIOS_VISIBLES_INCOMPLETA: '+host)
     if not baseline and set(value.get('stock_visibility', {})) != {str(p['id']) for p in products}:
@@ -55,6 +103,9 @@ def index(value):
 
 
 def enrich(rows, initial, catalog, before, frozen, after=None):
+    for reading in ([frozen] if initial is not None else []) + ([after] if after is not None else []):
+        if currency(reading)['iso_code'] != currency(before)['iso_code']:
+            raise ValueError('MONEDAS_NO_COMPARABLES')
     old = {p['id']:p for p in (initial or catalog)['products']}
     live = {p['id']:p for p in catalog['products']}
     previous, current = index(frozen), index(before)
@@ -62,6 +113,7 @@ def enrich(rows, initial, catalog, before, frozen, after=None):
     for row in rows:
         pid, cid = row['id_producto'], row['id_combinacion']
         for field in FIELDS: row[field] = ''
+        row.update(format_verified(row, before))
         ps = old.get(pid)
         combo = next((c for c in live[pid]['combinations'] if c['id']==cid), None)
         old_cid = None
@@ -75,25 +127,30 @@ def enrich(rows, initial, catalog, before, frozen, after=None):
         # A missing ERP alternative must not borrow the parent's visible price.
         exists = row.get('presentacion_en_prestashop') == 'SI'
         dest = current.get((pid,cid)) if exists else None
-        if base and initial is not None:row['precio_visible_base_227']=sync.money(base['actual'])
+        if base and initial is not None:assign(row, 'precio_visible_base_227', base['actual'], frozen)
         if dest:
             proposed=Decimal(str(dest['proposed']))
-            row['precio_visible_antes_corrida']=sync.money(dest['actual'])
-            row['precio_visible_propuesto']=sync.money(proposed)
+            assign(row, 'precio_visible_antes_corrida', dest['actual'], before)
+            assign(row, 'precio_visible_propuesto', proposed, before)
             value=proposed
             row['verificacion_precio_visible']='PRONOSTICO_MOTOR_NATIVO'
+            row['verificacion_precio_visible_tecnica']='PRONOSTICO_MOTOR_NATIVO'
             if final is not None:
                 observed=final.get((pid,cid))
                 if observed is None:raise ValueError('PRECIO_FINAL_NO_LEIDO: '+str(pid))
                 value=Decimal(str(observed['actual']))
-                row['precio_visible_verificado']=sync.money(value)
-                row['diferencia_visible_corrida']=sync.money(value-Decimal(str(dest['actual'])))
-                row['verificacion_precio_visible']='COINCIDE' if abs(value-proposed)<Decimal('0.01') else 'DIFIERE_REVISAR'
-            row['precio_visible_229']=sync.money(value)
+                assign(row, 'precio_visible_verificado', value, after)
+                row['diferencia_visible_corrida']=format(Decimal(row['precio_visible_verificado'])-Decimal(row['precio_visible_antes_corrida']), 'f')
+                row['diferencia_visible_corrida_tecnico']=sync.money(value-Decimal(str(dest['actual'])))
+                row['verificacion_precio_visible']='COINCIDE' if Decimal(row['precio_visible_verificado'])==Decimal(row['precio_visible_propuesto']) else 'DIFIERE_REVISAR'
+                row['verificacion_precio_visible_tecnica']='COINCIDE' if abs(value-proposed)<Decimal('0.01') else 'DIFIERE_REVISAR'
+            assign(row, 'precio_visible_229', value, after if after is not None else before)
             if base and initial is not None:
                 difference=value-Decimal(str(base['actual']))
-                row['diferencia_precio_visible']=sync.money(difference)
-                row['comparacion_precio_visible']='IGUAL' if abs(difference)<Decimal('0.01') else 'CAMBIO_VS_BASE'
+                row['diferencia_precio_visible']=format(Decimal(row['precio_visible_229'])-Decimal(row['precio_visible_base_227']), 'f')
+                row['diferencia_precio_visible_tecnico']=sync.money(difference)
+                row['comparacion_precio_visible']='IGUAL' if Decimal(row['diferencia_precio_visible'])==0 else 'CAMBIO_VS_BASE'
+                row['comparacion_precio_visible_tecnica']='IGUAL' if abs(difference)<Decimal('0.01') else 'CAMBIO_VS_BASE'
             else:row['comparacion_precio_visible']='SIN_PRESENTACION_COMPARABLE_EN_BASE'
         else:row['comparacion_precio_visible']='SIN_PRESENTACION_EN_DESTINO'
     return rows

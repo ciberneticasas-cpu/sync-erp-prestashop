@@ -42,7 +42,8 @@ function visiblePrices(array $request): array {
                 $result[] = ['id'=>$pid, 'combination_id'=>$cid, 'actual'=>$actual[$cid], 'proposed'=>$proposed[$cid]];
             }
         }
-        $output = ['host'=>TEST_HOST, 'context'=>'Visitante sin sesion, cantidad 1, moneda y pais predeterminados', 'prices'=>$result];
+        $output = ['host'=>TEST_HOST, 'context'=>'Visitante sin sesion, cantidad 1, moneda y pais predeterminados', 'prices'=>$result,
+            'currency'=>['iso_code'=>Context::getContext()->currency->iso_code, 'precision'=>(int)Context::getContext()->currency->precision, 'round_mode'=>(int)Configuration::get('PS_PRICE_ROUND_MODE')]];
         if (!empty($request['stock_visibility'])) { $output['stock_visibility'] = stockVisibility($request['products']); }
         return $output;
     } finally {

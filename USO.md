@@ -82,6 +82,30 @@ El orden inicial de columnas en todas las pestañas es:
   resultado de la relectura final. `diferencia_visible_corrida` mide únicamente el
   cambio durante la ejecución, que puede ser cero aunque haya diferencias con .227.
 
+Los importes visibles se redondean con la precisión de la moneda y el modo configurado
+en PrestaShop. En esta tienda es COP, **0 decimales**, redondeo HALF_UP. Se aplica a los
+precios visibles de origen, destino, antes de la corrida, propuestos y verificados, y al
+PUM visible verificado. El CSV de cambios usa el mismo criterio para sus campos visibles.
+
+Cada campo conserva su valor de seis decimales en una columna con sufijo `_tecnico`.
+Por ejemplo, `precio_visible_229=32900` y `precio_visible_229_tecnico=32900.000001`.
+`moneda_precios_visibles` y `decimales_precios_visibles` identifican la precisión utilizada.
+Las diferencias visibles se obtienen **restando los dos importes ya redondeados**; sus
+columnas `_tecnico` conservan la resta de los importes originales. Así los residuos del
+IVA no generan falsas diferencias ni alteran el orden de las fichas con diferencia cero.
+
+`comparacion_precio_visible` y `verificacion_precio_visible` comparan los importes
+redondeados. Las columnas terminadas en `_tecnica` conservan las comprobaciones previas
+con tolerancia de 0.01 sobre los valores del motor; una discrepancia técnica sigue
+marcada para revisión aunque los importes redondeados coincidan. `resumen.json` registra
+ambas verificaciones y los datos de moneda. Se rechaza comparar importes de monedas distintas.
+
+La comprobación nativa de presentaciones también exige precios distintos después del
+redondeo de moneda. Los precios sin IVA, los impactos, el PUM interno, los factores,
+las cantidades y sus controles conservan su precisión anterior. El redondeo del informe
+no se utiliza para decidir qué precios internos se escriben ni modifica la configuración
+de la tienda. No se redondean a enteros los datos originales del ERP.
+
 Cada pestaña se ordena por la mayor diferencia absoluta de cada ficha, de mayor a menor;
 la diferencia conserva su signo en la celda. Cuando la mayor diferencia conocida de una
 ficha es cero, se ordena por `factor_conversion_precio` de mayor a menor, usando el factor

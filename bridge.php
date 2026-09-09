@@ -178,7 +178,11 @@ function verifyProduct(array $operation): array {
         $unitRatio = $unitPrice > 0 ? $net / $unitPrice : 0;
         $result[] = ['combination_id'=>$id, 'reference'=>$item['reference'], 'net_price'=>$net, 'visible_price'=>$visible, 'quantity'=>$quantity, 'unit_price'=>$unitPrice, 'unit_price_ratio'=>$unitRatio, 'unity'=>$product->unity ?? '', 'visible_unit_price'=>$unitRatio > 0 ? $visible / $unitRatio : 0];
     }
-    if ($operation['mode'] === 'presentations' && count($result) > 1) { demand(count(array_unique(array_column($result, 'visible_price'))) === count($result), 'El motor devuelve precios visibles iguales; revisar promociones'); }
+    if ($operation['mode'] === 'presentations' && count($result) > 1) {
+        $precision = (int)Context::getContext()->currency->precision;
+        $displayed = array_map(function ($row) use ($precision) { return Tools::ps_round($row['visible_price'], $precision); }, $result);
+        demand(count(array_unique($displayed)) === count($result), 'El motor devuelve precios visibles iguales al redondear moneda; revisar promociones');
+    }
     return ['id'=>(int)$product->id, 'prices'=>$result];
 }
 

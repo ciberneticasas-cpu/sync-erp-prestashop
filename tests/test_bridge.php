@@ -60,6 +60,12 @@ class StockAvailable {
 }
 class Validate { public static function isLoadedObject($object): bool { return isset(Memory::$products[$object->id]); } }
 class Language { public static function getLanguages($active): array { return [['id_lang'=>1]]; } }
+class Context {
+    public static function getContext() { return (object)['currency'=>(object)['precision'=>0]]; }
+}
+class Tools {
+    public static function ps_round($value,$precision) { return round($value,$precision,PHP_ROUND_HALF_UP); }
+}
 class Configuration { public static function get($key): int { return 1; } }
 class AttributeGroup {
     public static function getAttributesGroups($lang): array { return [['name'=>'Presentación', 'id_attribute_group'=>13]]; }
@@ -135,3 +141,15 @@ foreach ([false, null, ''] as $inactive) {
     }
 }
 echo "OK: estado PS inactivo o nulo impide escrituras\n";
+
+Memory::$products[1]['active']=true;
+$before=[Memory::$products, Memory::$combos, Memory::$stocks];
+$bad=$op;$bad['base_price']='200';unset($bad['pum']);
+$bad['presentations'][0]['net_price']='200';$bad['presentations'][0]['impact']='0';
+$bad['presentations'][1]['net_price']='199.999999';$bad['presentations'][1]['impact']='-0.000001';
+try { applyPrices($bad); throw new Exception('Debio detectar precios visibles iguales'); }
+catch(RuntimeException $expected) {
+    check(strpos($expected->getMessage(),'iguales al redondear')!==false,'Comparacion segun moneda');
+    check([Memory::$products, Memory::$combos, Memory::$stocks]===$before,'Rollback por precios iguales visibles');
+}
+echo "OK: precios de presentaciones comparados con precision de moneda\n";
